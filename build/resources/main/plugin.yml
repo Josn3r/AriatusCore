@@ -1,0 +1,17 @@
+name: AriatusCore
+description: $description
+prefix: AriatusLog
+version: '${version}'
+
+main: net.ariatus.project.AriatusCore
+api-version: '26.1.2'
+load: POSTWORLD
+
+authors: [ Josn3r ]
+website: https://ariatus.net
+
+commands:
+  ariatus:
+    description: Main AriatusCore command
+    usage: /ariatus
+    aliases: [acore]

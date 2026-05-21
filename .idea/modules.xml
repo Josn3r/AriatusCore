@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/AriatusProfile/AriatusCore.AriatusProfile.main.iml" filepath="$PROJECT_DIR$/.idea/modules/AriatusProfile/AriatusCore.AriatusProfile.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/AriatusCore.main.iml" filepath="$PROJECT_DIR$/.idea/modules/AriatusCore.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/AriatusCore.test.iml" filepath="$PROJECT_DIR$/.idea/modules/AriatusCore.test.iml" />
+    </modules>
+  </component>
+</project>
