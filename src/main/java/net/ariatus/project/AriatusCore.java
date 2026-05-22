@@ -2,6 +2,7 @@ package net.ariatus.project;
 
 import net.ariatus.project.command.AriatusCommand;
 import net.ariatus.project.command.AriatusCommandManager;
+import net.ariatus.project.command.AriatusTabCompleter;
 import net.ariatus.project.config.AriatusConfigManager;
 import net.ariatus.project.database.DatabaseService;
 import net.ariatus.project.database.migration.MigrationManager;
@@ -12,8 +13,10 @@ import net.ariatus.project.event.ModuleEnabledEvent;
 import net.ariatus.project.event.ModuleReloadedEvent;
 import net.ariatus.project.listener.AriatusListenerManager;
 import net.ariatus.project.logger.LoggerService;
+import net.ariatus.project.message.MessagesManager;
 import net.ariatus.project.module.ModuleManager;
-import net.ariatus.project.module.internal.TestModule;
+import net.ariatus.project.module.config.ModuleConfigManager;
+import net.ariatus.project.module.data.ModuleDataManager;
 import net.ariatus.project.module.loader.AriatusModuleLoader;
 import net.ariatus.project.profiler.ModuleProfiler;
 import net.ariatus.project.service.ServiceRegistry;
@@ -34,8 +37,11 @@ public final class AriatusCore extends JavaPlugin {
     private AriatusTaskManager taskManager;
     private AriatusListenerManager listenerManager;
     private AriatusCommandManager commandManager;
+    private ModuleDataManager moduleDataManager;
+    private ModuleConfigManager moduleConfigManager;
 
     private AriatusConfigManager configManager;
+    private MessagesManager messagesManager;
     private ModuleProfiler profiler;
 
     @Override
@@ -44,6 +50,9 @@ public final class AriatusCore extends JavaPlugin {
 
         this.configManager = new AriatusConfigManager(this);
         this.configManager.load();
+
+        this.messagesManager = new MessagesManager(this);
+        this.messagesManager.load();
 
         this.loggerService = new LoggerService(this);
         this.eventBus = new InternalEventBus(this);
@@ -60,16 +69,21 @@ public final class AriatusCore extends JavaPlugin {
         this.serviceRegistry = new ServiceRegistry();
 
         this.moduleManager = new ModuleManager(this);
+        this.moduleDataManager = new ModuleDataManager(this);
+        this.moduleDataManager.load();
+        this.moduleConfigManager = new ModuleConfigManager(this);
         this.moduleLoader = new AriatusModuleLoader(this);
         this.taskManager = new AriatusTaskManager(this);
         this.listenerManager = new AriatusListenerManager(this);
         this.commandManager = new AriatusCommandManager(this);
 
+
         registerServices();
         registerInternalEventListeners();
-        registerModules();
-        moduleLoader.discoverModules();
-        moduleLoader.loadModules();
+        if (configManager.getBoolean("modules.external.auto-load", true)) {
+            moduleLoader.discoverModules();
+            moduleLoader.loadModules();
+        }
         registerCommands();
         enableConfiguredModules();
 
@@ -80,26 +94,40 @@ public final class AriatusCore extends JavaPlugin {
     public void onDisable() {
         getLogger().info("Apagando AriatusCore...");
 
+        if (moduleLoader != null) {
+            moduleLoader.unloadAll();
+        }
+
         if (moduleManager != null) {
             moduleManager.disableAll();
         }
-        if (taskManager != null) {
-            taskManager.cancelAll();
-        }
-        if (listenerManager != null) {
-            listenerManager.unregisterAll();
-        }
+
         if (commandManager != null) {
             commandManager.unregisterAll();
         }
-        if (serviceRegistry != null) {
-            serviceRegistry.clear();
+
+        if (listenerManager != null) {
+            listenerManager.unregisterAll();
         }
+
+        if (taskManager != null) {
+            taskManager.cancelAll();
+        }
+
+        if (moduleConfigManager != null) {
+            moduleConfigManager.unloadAll();
+        }
+
+        if (databaseService != null) {
+            databaseService.shutdown();
+        }
+
         if (eventBus != null) {
             eventBus.clear();
         }
-        if (databaseService != null) {
-            databaseService.shutdown();
+
+        if (serviceRegistry != null) {
+            serviceRegistry.clear();
         }
 
         getLogger().info("AriatusCore apagado correctamente.");
@@ -107,6 +135,7 @@ public final class AriatusCore extends JavaPlugin {
 
     private void registerServices() {
         serviceRegistry.register(AriatusConfigManager.class, configManager);
+        serviceRegistry.register(MessagesManager.class, messagesManager);
         serviceRegistry.register(LoggerService.class, loggerService);
         serviceRegistry.register(InternalEventBus.class, eventBus);
         serviceRegistry.register(DatabaseService.class, databaseService);
@@ -116,6 +145,8 @@ public final class AriatusCore extends JavaPlugin {
         serviceRegistry.register(AriatusListenerManager.class, listenerManager);
         serviceRegistry.register(AriatusCommandManager.class, commandManager);
         serviceRegistry.register(ModuleManager.class, moduleManager);
+        serviceRegistry.register(ModuleDataManager.class, moduleDataManager);
+        serviceRegistry.register(ModuleConfigManager.class, moduleConfigManager);
         serviceRegistry.register(AriatusModuleLoader.class, moduleLoader);
     }
 
@@ -123,12 +154,16 @@ public final class AriatusCore extends JavaPlugin {
         migrationManager.register(new CreateCoreTablesMigration());
     }
 
-    private void registerModules() {
-        moduleManager.register(new TestModule(this));
-    }
-
     private void registerCommands() {
-        getCommand("ariatus").setExecutor(new AriatusCommand(moduleManager));
+        var command = getCommand("ariatus");
+
+        if (command == null) {
+            loggerService.error("No se pudo registrar el comando /ariatus.");
+            return;
+        }
+
+        command.setExecutor(new AriatusCommand(moduleManager));
+        command.setTabCompleter(new AriatusTabCompleter(moduleManager));
     }
 
     private void enableConfiguredModules() {
@@ -183,6 +218,18 @@ public final class AriatusCore extends JavaPlugin {
 
     public AriatusModuleLoader moduleLoader() {
         return moduleLoader;
+    }
+
+    public ModuleDataManager moduleDataManager() {
+        return moduleDataManager;
+    }
+
+    public ModuleConfigManager moduleConfigManager() {
+        return moduleConfigManager;
+    }
+
+    public MessagesManager messages() {
+        return messagesManager;
     }
 
     //

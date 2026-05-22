@@ -16,8 +16,6 @@ public interface AriatusModule {
 
     void disable();
 
-    void reload();
-
     ModuleStatus status();
 
 }

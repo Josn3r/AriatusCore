@@ -109,4 +109,53 @@ public class DatabaseService {
             }
         });
     }
+
+    public CompletableFuture<Integer> updateAsync(DatabaseQuery<Integer> query) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (Connection connection = getConnection()) {
+                return query.execute(connection);
+            } catch (Exception exception) {
+                core.loggerService().error("Error ejecutando update SQL async: " + exception.getMessage());
+                return 0;
+            }
+        });
+    }
+
+    public <T> CompletableFuture<T> queryAsync(DatabaseQuery<T> query, T fallback) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (Connection connection = getConnection()) {
+                return query.execute(connection);
+            } catch (Exception exception) {
+                core.loggerService().error("Error ejecutando query SQL async: " + exception.getMessage());
+                return fallback;
+            }
+        });
+    }
+
+    public CompletableFuture<Boolean> transactionAsync(DatabaseTask task) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (Connection connection = getConnection()) {
+                boolean previousAutoCommit = connection.getAutoCommit();
+
+                try {
+                    connection.setAutoCommit(false);
+                    task.execute(connection);
+                    connection.commit();
+                    return true;
+                } catch (Exception exception) {
+                    connection.rollback();
+                    core.loggerService().error("Transacción SQL revertida: " + exception.getMessage());
+                    return false;
+                } finally {
+                    connection.setAutoCommit(previousAutoCommit);
+                }
+
+            } catch (Exception exception) {
+                core.loggerService().error("Error abriendo transacción SQL: " + exception.getMessage());
+                return false;
+            }
+        });
+    }
+
+
 }

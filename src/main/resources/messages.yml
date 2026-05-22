@@ -1,0 +1,7 @@
+prefix: "<gray>[</gray><gradient:#8A2BE2:#00D4FF>Ariatus</gradient><gray>]</gray> "
+no-permission: "&cNo tienes permisos."
+config-reloaded: "&aConfiguración recargada correctamente."
+module-not-found: "&cMódulo no encontrado: &e%module%"
+module-enabled: "&aMódulo activado: &e%module%"
+module-disabled: "&cMódulo desactivado: &e%module%"
+module-reloaded: "&bMódulo recargado: &e%module%"

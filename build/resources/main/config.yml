@@ -1,9 +1,8 @@
-ariatus:
-  debug: true
-
 modules:
+  external:
+    auto-load: true
   auto-enable:
-    - test
+    - profile
 
 profiler:
   enabled: true

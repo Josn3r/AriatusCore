@@ -48,13 +48,14 @@ public class ModuleManager {
             Optional<AriatusModule> dependency = getModule(dependencyId);
 
             if (dependency.isEmpty()) {
-                core.getLogger().warning("Dependencia no encontrada: " + dependencyId + " requerida por " + module.id());
+                core.loggerService().warn("Dependencia no encontrada: " + dependencyId + " requerida por " + module.id());
                 return false;
             }
 
             if (dependency.get().status() != ModuleStatus.ENABLED) {
-                core.getLogger().info("Activando dependencia: " + dependencyId);
-                enable(dependencyId);
+                if (!enable(dependencyId)) {
+                    return false;
+                }
             }
         }
 
@@ -62,9 +63,15 @@ public class ModuleManager {
             return true;
         }
 
-        module.enable();
-        core.eventBus().publish(new ModuleEnabledEvent(module));
-        return true;
+        try {
+            module.enable();
+            core.eventBus().publish(new ModuleEnabledEvent(module));
+            return true;
+        } catch (Exception exception) {
+            core.loggerService().error("Error activando módulo " + module.id() + ": " + exception.getMessage());
+            exception.printStackTrace();
+            return false;
+        }
     }
 
     public boolean disable(String id) {
@@ -78,7 +85,7 @@ public class ModuleManager {
 
         for (AriatusModule other : modules.values()) {
             if (other.status() == ModuleStatus.ENABLED && other.dependencies().contains(module.id())) {
-                core.getLogger().warning("No puedes desactivar " + module.id() + " porque lo requiere " + other.id());
+                core.loggerService().warn("No puedes desactivar " + module.id() + " porque lo requiere " + other.id());
                 return false;
             }
         }
@@ -87,9 +94,20 @@ public class ModuleManager {
             return true;
         }
 
-        module.disable();
-        core.eventBus().publish(new ModuleDisabledEvent(module));
-        return true;
+        try {
+            module.disable();
+
+            core.taskManager().cancelAll(module);
+            core.listenerManager().unregisterAll(module);
+            core.commandManager().unregisterAll(module);
+
+            core.eventBus().publish(new ModuleDisabledEvent(module));
+            return true;
+        } catch (Exception exception) {
+            core.loggerService().error("Error desactivando módulo " + module.id() + ": " + exception.getMessage());
+            exception.printStackTrace();
+            return false;
+        }
     }
 
     public boolean reload(String id) {
@@ -101,9 +119,51 @@ public class ModuleManager {
 
         AriatusModule module = optional.get();
 
-        module.reload();
-        core.eventBus().publish(new ModuleReloadedEvent(module));
+        try {
+            boolean disabled = disable(id);
 
+            if (!disabled) {
+                return false;
+            }
+
+            boolean enabled = enable(id);
+
+            if (!enabled) {
+                return false;
+            }
+
+            core.eventBus().publish(new ModuleReloadedEvent(module));
+            return true;
+
+        } catch (Exception exception) {
+            core.loggerService().error("Error recargando módulo " + module.id() + ": " + exception.getMessage());
+            exception.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean unregister(String id) {
+        String moduleId = id.toLowerCase();
+
+        AriatusModule module = modules.get(moduleId);
+
+        if (module == null) {
+            return false;
+        }
+
+        for (AriatusModule other : modules.values()) {
+            if (other.status() == ModuleStatus.ENABLED && other.dependencies().contains(module.id())) {
+                core.loggerService().warn("No puedes descargar " + module.id() + " porque lo requiere " + other.id());
+                return false;
+            }
+        }
+
+        if (module.status() == ModuleStatus.ENABLED) {
+            module.disable();
+        }
+
+        modules.remove(moduleId);
+        core.loggerService().info("Módulo eliminado del ModuleManager: " + moduleId);
         return true;
     }
 

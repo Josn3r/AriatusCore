@@ -15,3 +15,8 @@ commands:
     description: Main AriatusCore command
     usage: /ariatus
     aliases: [acore]
+
+permissions:
+  ariatus.admin:
+    description: Permite usar comandos administrativos de AriatusCore
+    default: op

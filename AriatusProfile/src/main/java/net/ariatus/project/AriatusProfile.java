@@ -1,5 +1,6 @@
 package net.ariatus.project;
 
+import net.ariatus.project.commands.ProfileCommand;
 import net.ariatus.project.module.ExternalAriatusModule;
 import net.ariatus.project.module.ModuleStatus;
 
@@ -21,6 +22,7 @@ public final class AriatusProfile extends ExternalAriatusModule {
     public void enable() {
         status = ModuleStatus.ENABLED;
         core().loggerService().info(this, "AriatusProfile activado correctamente.");
+        commands().register(this, new ProfileCommand());
     }
 
     @Override
@@ -30,13 +32,8 @@ public final class AriatusProfile extends ExternalAriatusModule {
     }
 
     @Override
-    public void reload() {
-        disable();
-        enable();
-    }
-
-    @Override
     public ModuleStatus status() {
         return status;
     }
+
 }
