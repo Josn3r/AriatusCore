@@ -1,0 +1,4 @@
+belowname:
+  enabled: true
+  update-ticks: 20
+  text: "%health% &c❤"
