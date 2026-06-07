@@ -69,6 +69,7 @@ public class ProfileStatsListener implements Listener {
         );
     }
 
+    @SuppressWarnings("deprecation")
     @EventHandler
     public void onPlayerMove (PlayerMoveEvent event) {
         Player player = event.getPlayer();

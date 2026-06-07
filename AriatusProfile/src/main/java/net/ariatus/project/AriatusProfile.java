@@ -21,8 +21,6 @@ public class AriatusProfile extends ExternalAriatusModule {
 
     private ProfileRepository repository;
     private ProfileManager profileManager;
-    private ProfileService profileService;
-
     private ExperienceService experienceService;
 
     @Override
@@ -43,7 +41,6 @@ public class AriatusProfile extends ExternalAriatusModule {
 
         this.repository = new MariaDBProfileRepository(this);
         this.profileManager = new ProfileManager(this, repository);
-        this.profileService = profileManager;
         this.experienceService = new ExperienceService(this);
 
         services().register(ProfileService.class, profileManager);
