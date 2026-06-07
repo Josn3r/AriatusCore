@@ -2,6 +2,7 @@ package net.ariatus.project.task;
 
 import net.ariatus.project.AriatusCore;
 import net.ariatus.project.module.AriatusModule;
+import net.ariatus.project.module.ExternalAriatusModule;
 import net.ariatus.project.profiler.ModuleProfiler;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -59,20 +60,19 @@ public class AriatusTaskManager {
         return task;
     }
 
+    public BukkitTask run(AriatusModule module, Runnable runnable) {
+        String moduleId = module.id().toLowerCase();
+        Runnable measuredRunnable = () -> runMeasured(moduleId, runnable);
+        BukkitTask task = Bukkit.getScheduler().runTask(core, measuredRunnable);
+        tasksByModule.computeIfAbsent(moduleId, id -> new ArrayList<>()).add(task);
+        return task;
+    }
+
     public BukkitTask runAsync(AriatusModule module, Runnable runnable) {
         String moduleId = module.id().toLowerCase();
-
         Runnable measuredRunnable = () -> runMeasured(moduleId, runnable);
-
-        BukkitTask task = Bukkit.getScheduler().runTaskAsynchronously(
-                core,
-                measuredRunnable
-        );
-
-        tasksByModule
-                .computeIfAbsent(moduleId, id -> new ArrayList<>())
-                .add(task);
-
+        BukkitTask task = Bukkit.getScheduler().runTaskAsynchronously(core, measuredRunnable);
+        tasksByModule.computeIfAbsent(moduleId, id -> new ArrayList<>()).add(task);
         return task;
     }
 
@@ -123,27 +123,18 @@ public class AriatusTaskManager {
 
     private void runMeasured(String moduleId, Runnable runnable) {
         long start = System.nanoTime();
-
         try {
             runnable.run();
         } catch (Exception exception) {
-            metricsByModule
-                    .computeIfAbsent(moduleId, id -> new TaskMetrics())
-                    .recordError();
-
+            metricsByModule.computeIfAbsent(moduleId, id -> new TaskMetrics()).recordError();
             profiler.error(moduleId);
-
             core.getLogger().warning(
                     "[AriatusTaskManager] Error en task del módulo " + moduleId + ": " + exception.getMessage()
             );
         } finally {
             long end = System.nanoTime();
             long elapsed = end - start;
-
-            metricsByModule
-                    .computeIfAbsent(moduleId, id -> new TaskMetrics())
-                    .record(elapsed);
-
+            metricsByModule.computeIfAbsent(moduleId, id -> new TaskMetrics()).record(elapsed);
             profiler.record(moduleId, elapsed);
         }
     }

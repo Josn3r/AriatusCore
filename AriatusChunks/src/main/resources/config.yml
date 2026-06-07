@@ -1,0 +1,9 @@
+chunks:
+  default-chunks-per-tick: 4
+
+  safety:
+    max-chunks-per-tick: 20
+    auto-save-progress-ticks: 100
+
+  messages:
+    prefix: "&6&lAriatusChunks &8» "

@@ -1,6 +1,9 @@
 package net.ariatus.project.listener;
 
+import com.destroystokyo.paper.ParticleBuilder;
 import net.ariatus.project.profile.ProfileManager;
+import org.bukkit.Location;
+import org.bukkit.Particle;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -8,6 +11,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 
 public class ProfileStatsListener implements Listener {
 
@@ -63,5 +67,21 @@ public class ProfileStatsListener implements Listener {
         profileManager.fullProfile(killer).ifPresent(profile ->
                 profile.stats().addMobKill()
         );
+    }
+
+    @EventHandler
+    public void onPlayerMove (PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+
+        if (player.isOnGround() && player.isSprinting()) {
+            spawnParticle(player.getLocation(), Particle.END_ROD, 2, 0.3, 0.3, 0.3, 0.01);
+        }
+    }
+
+    //
+
+    public void spawnParticle(Location location, Particle particle, int count, double offsetX, double offsetY, double offsetZ, double extra) {
+        if (location == null || location.getWorld() == null) return;
+        new ParticleBuilder(particle).location(location).count(count).offset(offsetX, offsetY, offsetZ).extra(extra).spawn();
     }
 }

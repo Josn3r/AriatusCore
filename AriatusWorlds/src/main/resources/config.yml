@@ -1,0 +1,9 @@
+worlds:
+  auto-load-enabled-worlds: true
+
+  safety:
+    prevent-unload-if-players-inside: true
+    fallback-world: "world"
+
+  import:
+    worlds-folder: "."

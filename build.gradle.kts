@@ -7,10 +7,12 @@ plugins {
 repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.dmulloy2.net/repository/public/")
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
+    compileOnly("com.comphenix.protocol:ProtocolLib:5.4.0-SNAPSHOT")
     implementation("net.kyori:adventure-text-minimessage:4.17.0")
     implementation("net.kyori:adventure-text-serializer-legacy:4.17.0")
     implementation("com.zaxxer:HikariCP:5.1.0")
@@ -41,4 +43,54 @@ tasks {
     build {
         dependsOn(shadowJar)
     }
+}
+
+val packageAriatusCore by tasks.registering(Copy::class) {
+    group = "ariatus"
+    description = "Copies AriatusCore.jar into dist/plugin"
+
+    dependsOn(tasks.shadowJar)
+
+    from(tasks.shadowJar.flatMap { it.archiveFile })
+    into(layout.projectDirectory.dir("dist/plugin"))
+
+    rename { "AriatusCore.jar" }
+}
+
+val packageAriatusModules by tasks.registering(Copy::class) {
+    group = "ariatus"
+    description = "Copies all Ariatus module jars into dist/modules"
+
+    dependsOn(subprojects.map { "${it.path}:build" })
+
+    val moduleJars = subprojects.map { subproject ->
+        subproject.layout.buildDirectory.dir("libs").map { libsDir ->
+            libsDir.asFileTree.matching {
+                include("*.jar")
+                exclude("*-sources.jar")
+                exclude("*-javadoc.jar")
+                exclude("*-plain.jar")
+            }
+        }
+    }
+
+    from(moduleJars)
+
+    into(layout.projectDirectory.dir("dist/modules"))
+}
+
+val cleanAriatusDist by tasks.registering(Delete::class) {
+    group = "ariatus"
+    description = "Deletes Ariatus dist folder"
+
+    delete(layout.projectDirectory.dir("dist"))
+}
+
+tasks.register("packageAriatus") {
+    group = "ariatus"
+    description = "Builds AriatusCore and all modules, then copies jars into dist"
+
+    dependsOn(cleanAriatusDist)
+    dependsOn(packageAriatusCore)
+    dependsOn(packageAriatusModules)
 }

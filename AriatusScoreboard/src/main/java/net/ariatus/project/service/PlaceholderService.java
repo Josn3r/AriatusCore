@@ -1,12 +1,17 @@
 package net.ariatus.project.service;
 
 import net.ariatus.project.AriatusScoreboard;
+import net.ariatus.project.api.chunk.ChunkPreloadService;
+import net.ariatus.project.api.chunk.ChunkPreloadTaskView;
+import net.ariatus.project.api.economy.Currency;
+import net.ariatus.project.api.economy.EconomyService;
 import net.ariatus.project.api.profile.ExperienceProvider;
 import net.ariatus.project.api.profile.ProfileService;
 import net.ariatus.project.api.profile.ProfileView;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -51,14 +56,14 @@ public class PlaceholderService {
                 .replace("%perm-prefix%", "");
 
         result = applyProfilePlaceholders(player, result);
+        result = applyEconomyPlaceholders(player, result);
+        result = applyChunkPlaceholders(player, result);
 
-        /*
-         * Segunda pasada para permitir:
-         * %animation_time% -> "&7Time &b%time%"
-         * o animaciones que contengan placeholders de profile.
-         */
         result = applyAnimations(result);
+
         result = applyProfilePlaceholders(player, result);
+        result = applyEconomyPlaceholders(player, result);
+        result = applyChunkPlaceholders(player, result);
 
         return result;
     }
@@ -127,6 +132,107 @@ public class PlaceholderService {
                 .replace("%profile_deaths%", String.valueOf(profile.deaths()))
                 .replace("%profile_blocks_broken%", String.valueOf(profile.blocksBroken()))
                 .replace("%profile_blocks_placed%", String.valueOf(profile.blocksPlaced()));
+    }
+
+    private String applyEconomyPlaceholders(Player player, String text) {
+        EconomyService economyService = economy();
+
+        if (economyService == null) {
+            return applyEconomyFallbacks(text);
+        }
+
+        BigDecimal coins = economyService.balance(player.getUniqueId(), Currency.COINS)
+                .exceptionally(throwable -> BigDecimal.ZERO)
+                .join();
+
+        BigDecimal odrys = economyService.balance(player.getUniqueId(), Currency.ODRYS)
+                .exceptionally(throwable -> BigDecimal.ZERO)
+                .join();
+
+        return text
+                .replace("%economy_coins%", economyService.format(Currency.COINS, coins))
+                .replace("%economy_coins_raw%", coins.toPlainString())
+                .replace("%economy_odrys%", economyService.format(Currency.ODRYS, odrys))
+                .replace("%economy_odrys_raw%", odrys.toPlainString());
+    }
+
+    private String applyEconomyFallbacks(String text) {
+        return text
+                .replace("%economy_coins%", "$0.00")
+                .replace("%economy_coins_raw%", "0.00")
+                .replace("%economy_odrys%", "0 Odrys")
+                .replace("%economy_odrys_raw%", "0");
+    }
+
+    private String applyChunkPlaceholders(Player player, String text) {
+        ChunkPreloadTaskView task = activeChunkTaskFor(player);
+
+        if (task == null) {
+            return applyChunkFallbacks(text);
+        }
+
+        return text
+                .replace("%chunks_state%", task.state().name())
+                .replace("%chunks_world%", task.worldId())
+                .replace("%chunks_radius%", String.valueOf(task.radius()))
+                .replace("%chunks_processed%", formatNumber(task.processedChunks()))
+                .replace("%chunks_total%", formatNumber(task.totalChunks()))
+                .replace("%chunks_progress%", String.format("%.2f", task.progress()))
+                .replace("%chunks_current_chunk_x%", String.valueOf(task.currentChunkX()))
+                .replace("%chunks_current_chunk_z%", String.valueOf(task.currentChunkZ()));
+    }
+
+    private String applyChunkFallbacks(String text) {
+        return text
+                .replace("%chunks_state%", "NONE")
+                .replace("%chunks_world%", "N/A")
+                .replace("%chunks_radius%", "0")
+                .replace("%chunks_processed%", "0")
+                .replace("%chunks_total%", "0")
+                .replace("%chunks_progress%", "0.00")
+                .replace("%chunks_current_chunk_x%", "0")
+                .replace("%chunks_current_chunk_z%", "0");
+    }
+
+    private ChunkPreloadTaskView activeChunkTaskFor(Player player) {
+        ChunkPreloadService chunkService = chunkService();
+
+        if (chunkService == null) {
+            return null;
+        }
+
+        String worldName = player.getWorld().getName();
+
+        return chunkService.tasks()
+                .stream()
+                .filter(task -> task.worldName().equalsIgnoreCase(worldName)
+                        || task.worldId().equalsIgnoreCase(worldName))
+                .findFirst()
+                .orElseGet(() -> chunkService.tasks()
+                        .stream()
+                        .filter(task -> task.running() || task.paused())
+                        .findFirst()
+                        .orElse(null));
+    }
+
+    private ChunkPreloadService chunkService() {
+        try {
+            return module.services().require(ChunkPreloadService.class);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String formatNumber(long value) {
+        return String.format("%,d", value);
+    }
+
+    private EconomyService economy() {
+        try {
+            return module.services().require(EconomyService.class);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private Optional<ProfileView> profile(Player player) {

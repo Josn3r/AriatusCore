@@ -1,0 +1,6 @@
+id: economy
+name: AriatusEconomy
+main: net.ariatus.project.AriatusEconomy
+version: 0.01
+dependencies:
+  - profile

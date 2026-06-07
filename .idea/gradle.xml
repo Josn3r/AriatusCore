@@ -8,8 +8,14 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/AriatusChunks" />
+            <option value="$PROJECT_DIR$/AriatusEconomy" />
+            <option value="$PROJECT_DIR$/AriatusNPCs" />
             <option value="$PROJECT_DIR$/AriatusProfile" />
+            <option value="$PROJECT_DIR$/AriatusProtection" />
             <option value="$PROJECT_DIR$/AriatusScoreboard" />
+            <option value="$PROJECT_DIR$/AriatusStorage" />
+            <option value="$PROJECT_DIR$/AriatusWorlds" />
           </set>
         </option>
       </GradleProjectSettings>

@@ -46,16 +46,25 @@ public class BelowNameService {
 
     public void updateAll() {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
+            cleanupNpcEntries(viewer);
+
             for (Player target : Bukkit.getOnlinePlayers()) {
                 updateBelowNameFor(viewer, target);
             }
+
+            cleanupNpcEntries(viewer);
         }
     }
 
     public void update(Player player) {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
+            cleanupNpcEntries(viewer);
+
             updateBelowNameFor(viewer, player);
             updateBelowNameFor(player, viewer);
+
+            cleanupNpcEntries(viewer);
+            cleanupNpcEntries(player);
         }
     }
 
@@ -74,6 +83,7 @@ public class BelowNameService {
             }
 
             scoreboard.resetScores(player.getName());
+            cleanupNpcEntries(viewer);
         }
     }
 
@@ -90,11 +100,23 @@ public class BelowNameService {
             if (objective != null) {
                 objective.unregister();
             }
+
+            cleanupNpcEntries(viewer);
         }
     }
 
     private void updateBelowNameFor(Player viewer, Player target) {
         Scoreboard scoreboard = viewer.getScoreboard();
+
+        if (scoreboard == null) {
+            return;
+        }
+
+        if (isNPCEntry(target.getName())) {
+            scoreboard.resetScores(target.getName());
+            cleanupNpcEntries(viewer);
+            return;
+        }
 
         Objective objective = scoreboard.getObjective(OBJECTIVE_NAME);
 
@@ -116,18 +138,43 @@ public class BelowNameService {
 
         String parsedText = placeholders.apply(target, text);
 
-        /*
-         * API moderna:
-         * Si tu API 26.1.2 permite texto directo/fancy value en belowname,
-         * este es el punto donde se debe aplicar el texto final.
-         *
-         * En APIs antiguas, BELOW_NAME sigue usando score numérico + displayName.
-         * Aquí dejamos valor numérico fallback para mantener compatibilidad
-         * mientras conectamos el método moderno exacto de la API.
-         */
-
         objective.displayName(MessageService.parse(parsedText));
         objective.numberFormat(NumberFormat.blank());
         objective.getScore(target.getName()).setScore(0);
+    }
+
+    private void cleanupNpcEntries(Player viewer) {
+        Scoreboard scoreboard = viewer.getScoreboard();
+
+        if (scoreboard == null) {
+            return;
+        }
+
+        Objective objective = scoreboard.getObjective(OBJECTIVE_NAME);
+
+        if (objective == null) {
+            return;
+        }
+
+        for (String entry : scoreboard.getEntries()) {
+            if (isNPCEntry(entry)) {
+                scoreboard.resetScores(entry);
+            }
+        }
+    }
+
+    private boolean isNPCEntry(String entry) {
+        if (entry == null || entry.isBlank()) {
+            return false;
+        }
+
+        try {
+            net.ariatus.project.api.npc.NPCService npcService =
+                    module.services().require(net.ariatus.project.api.npc.NPCService.class);
+
+            return npcService.isNPCScoreboardEntry(entry);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }

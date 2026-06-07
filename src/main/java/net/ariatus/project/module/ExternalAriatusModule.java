@@ -96,6 +96,14 @@ public abstract class ExternalAriatusModule implements AriatusModule {
         return config(fileName).getDouble(path, def);
     }
 
+    public boolean saveConfig() {
+        return core.moduleConfigManager().save(this);
+    }
+
+    public boolean saveConfig(String fileName) {
+        return core.moduleConfigManager().save(this, fileName);
+    }
+
     public AriatusTaskManager tasks() {
         return core.taskManager();
     }

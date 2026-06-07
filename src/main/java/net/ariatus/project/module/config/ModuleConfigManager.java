@@ -2,6 +2,7 @@ package net.ariatus.project.module.config;
 
 import net.ariatus.project.AriatusCore;
 import net.ariatus.project.module.AriatusModule;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -68,6 +69,27 @@ public class ModuleConfigManager {
         return configs.get(key(module, fileName));
     }
 
+    public boolean save(AriatusModule module) {
+        return save(module, "config.yml");
+    }
+
+    public boolean save(AriatusModule module, String fileName) {
+        ModuleConfig moduleConfig = get(module, fileName);
+
+        if (moduleConfig == null) {
+            core.loggerService().warn(module, "No se pudo guardar config no cargada: " + fileName);
+            return false;
+        }
+
+        try {
+            moduleConfig.configuration().save(moduleConfig.file());
+            return true;
+        } catch (Exception exception) {
+            core.loggerService().error(module, "Error guardando " + fileName + ": " + exception.getMessage());
+            return false;
+        }
+    }
+
     public void unload(AriatusModule module) {
         String prefix = module.id().toLowerCase() + ":";
 
@@ -77,6 +99,7 @@ public class ModuleConfigManager {
     public void unloadAll() {
         configs.clear();
     }
+
 
     public void saveDefaultResource(AriatusModule module, String resourceName) {
         String moduleId = module.id().toLowerCase();
