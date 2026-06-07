@@ -1,6 +1,0 @@
-id: npcs
-name: AriatusNPCs
-main: net.ariatus.project.AriatusNPCs
-version: 0.01
-dependencies:
-  - worlds

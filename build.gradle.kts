@@ -1,8 +1,12 @@
 plugins {
     id("java-library")
+    id("maven-publish")
     id("com.gradleup.shadow") version "9.4.1"
     id("xyz.jpenilla.run-paper") version "3.0.2"
 }
+
+group = "net.ariatus.project"
+version = "1.0"
 
 repositories {
     mavenCentral()
@@ -45,52 +49,13 @@ tasks {
     }
 }
 
-val packageAriatusCore by tasks.registering(Copy::class) {
-    group = "ariatus"
-    description = "Copies AriatusCore.jar into dist/plugin"
-
-    dependsOn(tasks.shadowJar)
-
-    from(tasks.shadowJar.flatMap { it.archiveFile })
-    into(layout.projectDirectory.dir("dist/plugin"))
-
-    rename { "AriatusCore.jar" }
-}
-
-val packageAriatusModules by tasks.registering(Copy::class) {
-    group = "ariatus"
-    description = "Copies all Ariatus module jars into dist/modules"
-
-    dependsOn(subprojects.map { "${it.path}:build" })
-
-    val moduleJars = subprojects.map { subproject ->
-        subproject.layout.buildDirectory.dir("libs").map { libsDir ->
-            libsDir.asFileTree.matching {
-                include("*.jar")
-                exclude("*-sources.jar")
-                exclude("*-javadoc.jar")
-                exclude("*-plain.jar")
-            }
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            artifact(tasks.shadowJar.get())
+            groupId = "net.ariatus.project"
+            artifactId = "AriatusCore"
+            version = "1.0"
         }
     }
-
-    from(moduleJars)
-
-    into(layout.projectDirectory.dir("dist/modules"))
-}
-
-val cleanAriatusDist by tasks.registering(Delete::class) {
-    group = "ariatus"
-    description = "Deletes Ariatus dist folder"
-
-    delete(layout.projectDirectory.dir("dist"))
-}
-
-tasks.register("packageAriatus") {
-    group = "ariatus"
-    description = "Builds AriatusCore and all modules, then copies jars into dist"
-
-    dependsOn(cleanAriatusDist)
-    dependsOn(packageAriatusCore)
-    dependsOn(packageAriatusModules)
 }
