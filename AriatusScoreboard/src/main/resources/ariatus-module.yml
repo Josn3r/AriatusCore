@@ -1,0 +1,5 @@
+id: scoreboard
+name: AriatusScoreboard
+main: net.ariatus.project.AriatusScoreboard
+version: 0.01
+dependencies: []

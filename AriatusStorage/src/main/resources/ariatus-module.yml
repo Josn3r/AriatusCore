@@ -1,0 +1,7 @@
+id: storage
+name: AriatusStorage
+main: net.ariatus.project.AriatusStorage
+version: 0.01
+dependencies:
+  - profile
+  - economy

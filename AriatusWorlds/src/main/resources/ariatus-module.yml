@@ -1,0 +1,5 @@
+id: worlds
+name: AriatusWorlds
+main: net.ariatus.project.AriatusWorlds
+version: 0.01
+dependencies: []

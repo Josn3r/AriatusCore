@@ -1,0 +1,6 @@
+id: protection
+name: AriatusProtection
+main: net.ariatus.project.AriatusProtection
+version: 0.01
+dependencies:
+  - worlds

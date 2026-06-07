@@ -26,3 +26,4 @@ versions/
 
 # Java
 out/
+/AriatusProfile/build/

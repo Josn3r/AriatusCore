@@ -1,0 +1,6 @@
+id: chunks
+name: AriatusChunks
+main: net.ariatus.project.AriatusChunks
+version: 0.1.0
+dependencies:
+  - worlds
