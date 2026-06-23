@@ -1,6 +1,9 @@
 /.gradle
 /bin
+/bin/main
 /build
 /gradle
 /gradlew
 /gradlew.bat
+/.gradle/9.5.1
+/gradle/wrapper
