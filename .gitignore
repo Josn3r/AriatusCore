@@ -1,29 +1,6 @@
-# IntelliJ
-.idea/
-*.iml
-
-# Gradle
-.gradle/
-build/
-
-# macOS
-.DS_Store
-
-# Logs
-logs/
-
-# Runtime
-run/
-
-# Compiled jars
-*.jar
-
-# Velocity/Paper runtime
-plugins/
-cache/
-libraries/
-versions/
-
-# Java
-out/
-/AriatusProfile/build/
+/.gradle
+/bin
+/build
+/gradle
+/gradlew
+/gradlew.bat
