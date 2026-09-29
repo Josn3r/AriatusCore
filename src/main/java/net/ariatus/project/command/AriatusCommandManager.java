@@ -3,139 +3,253 @@ package net.ariatus.project.command;
 import net.ariatus.project.AriatusCore;
 import net.ariatus.project.module.AriatusModule;
 import org.bukkit.Bukkit;
+import org.bukkit.command.Command;
 import org.bukkit.command.CommandMap;
-import org.bukkit.command.SimpleCommandMap;
 
-import java.lang.reflect.Field;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
-public class AriatusCommandManager {
+public final class AriatusCommandManager {
 
     private final AriatusCore core;
+    private final CommandMap commandMap;
 
-    private final Map<String, AriatusCommandExecutor> commands = new HashMap<>();
-    private final Map<String, List<String>> commandsByModule = new HashMap<>();
-    private final Map<String, AriatusDynamicCommand> bukkitCommands = new HashMap<>();
+    private final Map<String, Registration> registrationsByPrimary = new LinkedHashMap<>();
+    private final Map<String, Registration> registrationsByLabel = new LinkedHashMap<>();
 
     public AriatusCommandManager(AriatusCore core) {
-        this.core = core;
+        this.core = Objects.requireNonNull(core, "core");
+        this.commandMap = Bukkit.getCommandMap();
     }
 
-    public void register(AriatusModule module, AriatusCommandExecutor command) {
-        String commandName = command.name().toLowerCase();
-        String moduleId = module.id().toLowerCase();
+    public synchronized <T extends AriatusCommandExecutor> T register(AriatusModule module, T executor) {
+        ensurePrimaryThread("registrar comandos");
 
-        commands.put(commandName, command);
+        Objects.requireNonNull(module, "module");
+        Objects.requireNonNull(executor, "executor");
 
-        for (String alias : command.aliases()) {
-            commands.put(alias.toLowerCase(), command);
+        String primary = normalizeLabel(executor.name());
+
+        LinkedHashSet<String> requestedLabels = new LinkedHashSet<>();
+        requestedLabels.add(primary);
+
+        for (String alias : executor.aliases()) {
+            requestedLabels.add(normalizeLabel(alias));
         }
 
-        commandsByModule
-                .computeIfAbsent(moduleId, id -> new ArrayList<>())
-                .add(commandName);
+        validateAvailable(requestedLabels);
 
-        registerBukkitCommand(command);
+        AriatusDynamicCommand dynamicCommand = new AriatusDynamicCommand(
+                core,
+                module,
+                executor
+        );
 
-        core.loggerService().info("[CommandManager] Comando registrado: /" + commandName);
-    }
+        boolean registered = commandMap.register(
+                "ariatus",
+                dynamicCommand
+        );
 
-    public Optional<AriatusCommandExecutor> getCommand(String name) {
-        return Optional.ofNullable(commands.get(name.toLowerCase()));
-    }
+        if (!registered) {
+            removeFromCommandMap(dynamicCommand);
 
-    public Collection<AriatusCommandExecutor> getCommands() {
-        return commands.values();
-    }
-
-    public void unregisterAll(AriatusModule module) {
-        String moduleId = module.id().toLowerCase();
-
-        List<String> moduleCommands = commandsByModule.remove(moduleId);
-
-        if (moduleCommands == null) {
-            return;
+            throw new IllegalStateException(
+                    "Paper no pudo registrar el comando /" + primary + "."
+            );
         }
 
-        for (String commandName : moduleCommands) {
-            unregisterBukkitCommand(commandName);
+        Set<String> bukkitKeys = findKeys(dynamicCommand);
 
-            AriatusCommandExecutor executor = commands.remove(commandName);
+        Registration registration = new Registration(
+                module.id(),
+                primary,
+                executor,
+                dynamicCommand,
+                Set.copyOf(requestedLabels),
+                bukkitKeys
+        );
 
-            if (executor != null) {
-                for (String alias : executor.aliases()) {
-                    commands.remove(alias.toLowerCase());
-                    unregisterBukkitCommand(alias.toLowerCase());
-                }
+        registrationsByPrimary.put(
+                primary,
+                registration
+        );
+
+        for (String label : requestedLabels) {
+            registrationsByLabel.put(
+                    label,
+                    registration
+            );
+        }
+
+        module.logger().debug(
+                "Comando registrado: /"
+                        + primary
+                        + (
+                        executor.aliases().isEmpty()
+                                ? ""
+                                : " " + executor.aliases()
+                )
+        );
+
+        return executor;
+    }
+
+    public synchronized Optional<AriatusCommandExecutor> getCommand(String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+
+        Registration registration = registrationsByLabel.get(
+                name.toLowerCase(Locale.ROOT)
+        );
+
+        return registration == null
+                ? Optional.empty()
+                : Optional.of(registration.executor());
+    }
+
+    public synchronized Collection<AriatusCommandExecutor> getCommands() {
+        return registrationsByPrimary.values()
+                .stream()
+                .map(Registration::executor)
+                .toList();
+    }
+
+    public synchronized int activeCommands(AriatusModule module) {
+        String moduleId = module.id();
+
+        return (int) registrationsByPrimary.values()
+                .stream()
+                .filter(registration -> registration.moduleId().equals(moduleId))
+                .count();
+    }
+
+    public synchronized void unregisterAll(AriatusModule module) {
+        ensurePrimaryThread("desregistrar comandos");
+
+        String moduleId = Objects.requireNonNull(module, "module").id();
+
+        List<Registration> registrations = registrationsByPrimary.values()
+                .stream()
+                .filter(registration -> registration.moduleId().equals(moduleId))
+                .toList();
+
+        for (Registration registration : registrations) {
+            unregister(registration);
+        }
+    }
+
+    public synchronized void unregisterAll() {
+        ensurePrimaryThread("desregistrar comandos");
+
+        List<Registration> registrations = new ArrayList<>(
+                registrationsByPrimary.values()
+        );
+
+        for (Registration registration : registrations) {
+            unregister(registration);
+        }
+
+        registrationsByPrimary.clear();
+        registrationsByLabel.clear();
+    }
+
+    private void unregister(Registration registration) {
+        registrationsByPrimary.remove(
+                registration.primary()
+        );
+
+        for (String label : registration.labels()) {
+            registrationsByLabel.remove(
+                    label,
+                    registration
+            );
+        }
+
+        removeFromCommandMap(
+                registration.command()
+        );
+    }
+
+    private void removeFromCommandMap(AriatusDynamicCommand command) {
+        command.unregister(commandMap);
+
+        commandMap.getKnownCommands()
+                .entrySet()
+                .removeIf(entry -> entry.getValue() == command);
+    }
+
+    private Set<String> findKeys(Command command) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+
+        commandMap.getKnownCommands().forEach((key, registeredCommand) -> {
+            if (registeredCommand == command) {
+                keys.add(key);
+            }
+        });
+
+        return Set.copyOf(keys);
+    }
+
+    private void validateAvailable(Set<String> labels) {
+        for (String label : labels) {
+            if (registrationsByLabel.containsKey(label)) {
+                throw new IllegalStateException(
+                        "El comando o alias /" + label + " ya está registrado por otro módulo Ariatus."
+                );
+            }
+
+            Command existing = commandMap.getCommand(label);
+
+            if (existing != null) {
+                throw new IllegalStateException(
+                        "El comando o alias /" + label + " ya está registrado en el servidor."
+                );
             }
         }
-
-        core.loggerService().info("[CommandManager] Comandos eliminados del módulo: " + moduleId);
     }
 
-    public int activeCommands(AriatusModule module) {
-        return commandsByModule
-                .getOrDefault(module.id().toLowerCase(), List.of())
-                .size();
-    }
+    private String normalizeLabel(String value) {
+        String label = Objects.requireNonNull(value, "command label")
+                .trim()
+                .toLowerCase(Locale.ROOT);
 
-    public void unregisterAll() {
-        for (String commandName : new ArrayList<>(bukkitCommands.keySet())) {
-            unregisterBukkitCommand(commandName);
+        if (label.isEmpty()) {
+            throw new IllegalArgumentException("El nombre del comando no puede estar vacío.");
         }
 
-        commands.clear();
-        commandsByModule.clear();
-        bukkitCommands.clear();
+        if (!label.matches("^[a-z0-9][a-z0-9_-]*$")) {
+            throw new IllegalArgumentException(
+                    "Nombre de comando inválido: " + value
+            );
+        }
+
+        return label;
     }
 
-    private void registerBukkitCommand(AriatusCommandExecutor executor) {
-        try {
-            CommandMap commandMap = getCommandMap();
-
-            AriatusDynamicCommand dynamicCommand = new AriatusDynamicCommand(executor);
-
-            commandMap.register("ariatus", dynamicCommand);
-
-            bukkitCommands.put(executor.name().toLowerCase(), dynamicCommand);
-
-            for (String alias : executor.aliases()) {
-                bukkitCommands.put(alias.toLowerCase(), dynamicCommand);
-            }
-
-        } catch (Exception exception) {
-            core.loggerService().error("No se pudo registrar comando /" + executor.name() + ": " + exception.getMessage());
+    private void ensurePrimaryThread(String action) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException(
+                    "AriatusCore solo puede " + action + " desde el thread principal."
+            );
         }
     }
 
-    private void unregisterBukkitCommand(String commandName) {
-        try {
-            CommandMap commandMap = getCommandMap();
-
-            if (!(commandMap instanceof SimpleCommandMap simpleCommandMap)) {
-                return;
-            }
-
-            Field knownCommandsField = SimpleCommandMap.class.getDeclaredField("knownCommands");
-            knownCommandsField.setAccessible(true);
-
-            @SuppressWarnings("unchecked")
-            Map<String, org.bukkit.command.Command> knownCommands =
-                    (Map<String, org.bukkit.command.Command>) knownCommandsField.get(simpleCommandMap);
-
-            knownCommands.remove(commandName.toLowerCase());
-            knownCommands.remove("ariatus:" + commandName.toLowerCase());
-
-            bukkitCommands.remove(commandName.toLowerCase());
-
-        } catch (Exception exception) {
-            core.loggerService().error("No se pudo desregistrar comando /" + commandName + ": " + exception.getMessage());
-        }
-    }
-
-    private CommandMap getCommandMap() throws Exception {
-        Field commandMapField = Bukkit.getServer().getClass().getDeclaredField("commandMap");
-        commandMapField.setAccessible(true);
-        return (CommandMap) commandMapField.get(Bukkit.getServer());
+    private record Registration(
+            String moduleId,
+            String primary,
+            AriatusCommandExecutor executor,
+            AriatusDynamicCommand command,
+            Set<String> labels,
+            Set<String> bukkitKeys
+    ) {
     }
 }

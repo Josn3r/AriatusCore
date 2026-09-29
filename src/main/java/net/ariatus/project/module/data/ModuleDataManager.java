@@ -4,30 +4,52 @@ import net.ariatus.project.AriatusCore;
 import net.ariatus.project.module.AriatusModule;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
 
-public class ModuleDataManager {
+public final class ModuleDataManager {
 
     private final AriatusCore core;
-    private final File modulesDataFolder;
+    private final Path modulesDataDirectory;
 
     public ModuleDataManager(AriatusCore core) {
-        this.core = core;
-        this.modulesDataFolder = new File(core.getDataFolder(), "modules-data");
+        this.core = Objects.requireNonNull(core, "core");
+        this.modulesDataDirectory = core.getDataFolder().toPath().resolve("modules-data");
     }
 
     public void load() {
-        if (!modulesDataFolder.exists() && modulesDataFolder.mkdirs()) {
-            core.loggerService().info("Carpeta modules-data creada.");
+        try {
+            Files.createDirectories(modulesDataDirectory);
+        } catch (IOException exception) {
+            throw new IllegalStateException("No se pudo crear la carpeta modules-data.", exception);
         }
     }
 
-    public File folder(AriatusModule module) {
-        File folder = new File(modulesDataFolder, module.id().toLowerCase());
+    public Path path(AriatusModule module) {
+        Objects.requireNonNull(module, "module");
 
-        if (!folder.exists()) {
-            folder.mkdirs();
+        Path moduleDirectory = modulesDataDirectory.resolve(module.id()).normalize();
+
+        if (!moduleDirectory.startsWith(modulesDataDirectory)) {
+            throw new IllegalStateException("Ruta de datos inválida para el módulo " + module.id() + ".");
         }
 
-        return folder;
+        try {
+            Files.createDirectories(moduleDirectory);
+        } catch (IOException exception) {
+            throw new IllegalStateException("No se pudo crear la carpeta de datos del módulo " + module.id() + ".", exception);
+        }
+
+        return moduleDirectory;
+    }
+
+    public File folder(AriatusModule module) {
+        return path(module).toFile();
+    }
+
+    public Path root() {
+        return modulesDataDirectory;
     }
 }

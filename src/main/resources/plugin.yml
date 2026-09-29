@@ -1,7 +1,7 @@
 name: AriatusCore
-description: $description
+description: '${description}'
 prefix: AriatusLog
-version: '0.26'
+version: '${version}'
 
 main: net.ariatus.project.AriatusCore
 api-version: '26.1.2'
@@ -14,7 +14,7 @@ commands:
   ariatus:
     description: Main AriatusCore command
     usage: /ariatus
-    aliases: [acore]
+    aliases: [ acore ]
 
 permissions:
   ariatus.admin:

@@ -1,339 +1,1214 @@
 package net.ariatus.project.module.loader;
 
 import net.ariatus.project.AriatusCore;
-import net.ariatus.project.module.ExternalAriatusModule;
+import net.ariatus.project.event.ModuleReloadedEvent;
+import net.ariatus.project.module.AriatusModule;
+import net.ariatus.project.module.ModuleContainer;
+import net.ariatus.project.module.ModuleDescriptor;
 import net.ariatus.project.module.ModuleStatus;
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
-import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.jar.JarFile;
-import java.util.regex.Pattern;
 
-public class AriatusModuleLoader {
-
-    private static final Pattern MODULE_ID_PATTERN =
-            Pattern.compile("^[a-z0-9-_]+$");
+public final class AriatusModuleLoader {
 
     private final AriatusCore core;
     private final File modulesFolder;
 
-    private final List<ModuleDescriptor> discoveredModules = new ArrayList<>();
-    private final Map<String, LoadedModule> loadedModules = new LinkedHashMap<>();
+    private final Map<String, ModuleDescriptor> discoveredModules = new LinkedHashMap<>();
+    private final Map<String, ModuleContainer> loadedModules = new LinkedHashMap<>();
     private final Map<String, String> failedModules = new LinkedHashMap<>();
 
     public AriatusModuleLoader(AriatusCore core) {
-        this.core = core;
-        this.modulesFolder = new File(core.getDataFolder(), "modules");
+        this.core = Objects.requireNonNull(
+                core,
+                "core"
+        );
+
+        this.modulesFolder =
+                new File(
+                        core.getDataFolder(),
+                        "modules"
+                );
     }
 
     public void loadFolder() {
-        if (!modulesFolder.exists() && modulesFolder.mkdirs()) {
-            core.loggerService().info("Carpeta de módulos creada: " + modulesFolder.getPath());
+        ensurePrimaryThread(
+                "crear la carpeta de módulos"
+        );
+
+        if (
+                !modulesFolder.exists()
+                        && modulesFolder.mkdirs()
+        ) {
+            core.loggerService().info(
+                    "Carpeta de módulos creada: "
+                            + modulesFolder.getPath()
+            );
         }
     }
 
     public void discoverModules() {
+        ensurePrimaryThread(
+                "buscar módulos"
+        );
+
         discoveredModules.clear();
         failedModules.clear();
+
         loadFolder();
 
-        File[] files = modulesFolder.listFiles((dir, name) -> name.endsWith(".jar"));
+        File[] files =
+                modulesFolder.listFiles(
+                        (directory, name) ->
+                                name.toLowerCase(
+                                                Locale.ROOT
+                                        )
+                                        .endsWith(".jar")
+                );
 
-        if (files == null || files.length == 0) {
-            core.loggerService().warn("No se encontraron módulos externos en /AriatusCore/modules/");
+        if (
+                files == null
+                        || files.length == 0
+        ) {
+            core.loggerService().warn(
+                    "No se encontraron módulos en /AriatusCore/modules/."
+            );
+
             return;
         }
 
+        Arrays.sort(
+                files,
+                Comparator.comparing(
+                        File::getName,
+                        String.CASE_INSENSITIVE_ORDER
+                )
+        );
+
+        Set<String> duplicateIds =
+                new LinkedHashSet<>();
+
         for (File file : files) {
-            discoverModule(file);
+            discoverModule(
+                    file,
+                    duplicateIds
+            );
         }
-    }
 
-    private void discoverModule(File file) {
-        try (JarFile jarFile = new JarFile(file)) {
-            var entry = jarFile.getJarEntry("ariatus-module.yml");
-
-            if (entry == null) {
-                core.loggerService().warn("El archivo " + file.getName() + " no contiene ariatus-module.yml");
-                return;
-            }
-
-            try (InputStream inputStream = jarFile.getInputStream(entry);
-                 InputStreamReader reader = new InputStreamReader(inputStream)) {
-
-                YamlConfiguration yaml = YamlConfiguration.loadConfiguration(reader);
-
-                String id = yaml.getString("id");
-                String name = yaml.getString("name");
-                String main = yaml.getString("main");
-                String version = yaml.getString("version", "unknown");
-                List<String> dependencies = yaml.getStringList("dependencies");
-
-                if (id == null || !MODULE_ID_PATTERN.matcher(id).matches()) {
-                    failedModules.put(file.getName(), "ID inválido. Solo se permite: a-z, 0-9, -, _");
-                    core.loggerService().error("ID inválido en módulo " + file.getName());
-                    return;
-                }
-
-                id = id.toLowerCase();
-
-                if (name == null || main == null) {
-                    failedModules.put(id, "Faltan campos obligatorios: name o main");
-                    core.loggerService().warn("Módulo inválido en " + file.getName() + ": faltan name o main.");
-                    return;
-                }
-
-                String finalId = id;
-                boolean duplicate = discoveredModules.stream()
-                        .anyMatch(module -> module.id().equalsIgnoreCase(finalId));
-
-                if (duplicate || loadedModules.containsKey(id)) {
-                    failedModules.put(id, "ID duplicado");
-                    core.loggerService().error("ID duplicado detectado: " + id);
-                    return;
-                }
-
-                List<String> normalizedDependencies = dependencies.stream()
-                        .map(String::toLowerCase)
-                        .toList();
-
-                ModuleDescriptor descriptor = new ModuleDescriptor(
-                        id,
-                        name,
-                        main,
-                        version,
-                        normalizedDependencies,
-                        file
-                );
-
-                discoveredModules.add(descriptor);
-
-                core.loggerService().info("Módulo externo detectado: " + name + " v" + version + " (" + id + ")");
-            }
-
-        } catch (Exception exception) {
-            failedModules.put(file.getName(), exception.getMessage());
-            core.loggerService().error("Error leyendo módulo " + file.getName() + ": " + exception.getMessage());
+        for (String duplicateId : duplicateIds) {
+            discoveredModules.remove(
+                    duplicateId
+            );
         }
+
+        validateDiscoveredModules();
+
+        core.loggerService().info(
+                "Escaneo completado. Detectados: "
+                        + discoveredModules.size()
+                        + ", fallidos: "
+                        + failedModules.size()
+                        + "."
+        );
     }
 
     public void loadModules() {
-        List<ModuleDescriptor> remaining = new ArrayList<>(discoveredModules);
+        ensurePrimaryThread(
+                "cargar módulos"
+        );
 
-        boolean progress;
-
-        do {
-            progress = false;
-
-            Iterator<ModuleDescriptor> iterator = remaining.iterator();
-
-            while (iterator.hasNext()) {
-                ModuleDescriptor descriptor = iterator.next();
-
-                boolean dependenciesLoaded = descriptor.dependencies().stream()
-                        .allMatch(loadedModules::containsKey);
-
-                if (!dependenciesLoaded) {
-                    continue;
-                }
-
-                boolean loaded = loadModule(descriptor);
-
-                if (loaded) {
-                    iterator.remove();
-                    progress = true;
-                } else {
-                    iterator.remove();
-                }
-            }
-
-        } while (progress);
-
-        for (ModuleDescriptor descriptor : remaining) {
-            failedModules.put(descriptor.id(), "No se pudieron resolver dependencias: " + descriptor.dependencies());
-            core.loggerService().error("No se pudo resolver dependencias para: " + descriptor.id());
+        for (
+                String id :
+                List.copyOf(
+                        discoveredModules.keySet()
+                )
+        ) {
+            loadModuleById(id);
         }
     }
 
-    public boolean loadModuleById(String id) {
-        String moduleId = id.toLowerCase();
+    public boolean loadModuleById(
+            String id
+    ) {
+        ensurePrimaryThread(
+                "cargar módulos"
+        );
 
-        Optional<ModuleDescriptor> descriptor = discoveredModules.stream()
-                .filter(module -> module.id().equalsIgnoreCase(moduleId))
-                .findFirst();
-
-        if (descriptor.isEmpty()) {
-            failedModules.put(moduleId, "Descriptor no encontrado. Ejecuta /ariatus scanmodules");
+        if (id == null) {
             return false;
         }
 
-        for (String dependency : descriptor.get().dependencies()) {
-            if (!loadedModules.containsKey(dependency)) {
-                boolean dependencyLoaded = loadModuleById(dependency);
-
-                if (!dependencyLoaded) {
-                    failedModules.put(moduleId, "No se pudo cargar dependencia: " + dependency);
-                    return false;
-                }
-            }
-        }
-
-        return loadModule(descriptor.get());
+        return loadModuleById(
+                normalizeId(id),
+                new LinkedHashSet<>()
+        );
     }
 
-    private boolean loadModule(ModuleDescriptor descriptor) {
-        if (loadedModules.containsKey(descriptor.id())) {
-            core.loggerService().warn("El módulo " + descriptor.id() + " ya está cargado.");
-            return true;
-        }
+    public boolean unloadModule(
+            String id
+    ) {
+        ensurePrimaryThread(
+                "descargar módulos"
+        );
 
-        for (String dependency : descriptor.dependencies()) {
-            boolean exists = discoveredModules.stream()
-                    .anyMatch(found -> found.id().equalsIgnoreCase(dependency));
-
-            if (!exists) {
-                failedModules.put(descriptor.id(), "Dependencia faltante: " + dependency);
-                core.loggerService().error("Dependencia faltante para " + descriptor.id() + ": " + dependency);
-                return false;
-            }
-        }
-
-        try {
-            URL url = descriptor.file().toURI().toURL();
-
-            AriatusModuleClassLoader classLoader =
-                    new AriatusModuleClassLoader(
-                            new URL[]{url},
-                            core.getClass().getClassLoader()
-                    );
-
-            Class<?> clazz = classLoader.loadClass(descriptor.main());
-
-            if (!ExternalAriatusModule.class.isAssignableFrom(clazz)) {
-                failedModules.put(descriptor.id(), "La clase main no extiende ExternalAriatusModule");
-                core.loggerService().error("El módulo " + descriptor.id() + " no extiende ExternalAriatusModule.");
-                classLoader.close();
-                return false;
-            }
-
-            ExternalAriatusModule module =
-                    (ExternalAriatusModule) clazz.getDeclaredConstructor().newInstance();
-
-            module.initialize(core);
-
-            loadedModules.put(
-                    descriptor.id(),
-                    new LoadedModule(descriptor, module, classLoader)
-            );
-
-            core.moduleManager().register(module);
-
-            failedModules.remove(descriptor.id());
-
-            core.loggerService().info("Módulo externo cargado: " + descriptor.name());
-            return true;
-
-        } catch (Exception exception) {
-            failedModules.put(descriptor.id(), exception.getMessage());
-            core.loggerService().error("No se pudo cargar módulo "
-                    + descriptor.id() + ": " + exception.getMessage());
-            return false;
-        }
-    }
-
-    public boolean unloadModule(String id) {
-        String moduleId = id.toLowerCase();
-        LoadedModule loadedModule = loadedModules.get(moduleId);
-
-        if (loadedModule == null) {
-            failedModules.put(moduleId, "No está cargado");
+        if (id == null) {
             return false;
         }
 
-        try {
-            ExternalAriatusModule module = loadedModule.instance();
-            boolean unregistered = core.moduleManager().unregister(moduleId);
-            if (!unregistered) {
-                return false;
-            }
-            core.taskManager().cancelAll(module);
-            core.listenerManager().unregisterAll(module);
-            core.commandManager().unregisterAll(module);
-            core.moduleConfigManager().unload(module);
+        String moduleId =
+                normalizeId(id);
 
-            loadedModules.remove(moduleId);
-            loadedModule.classLoader().close();
-            failedModules.remove(moduleId);
+        ModuleContainer container =
+                loadedModules.get(
+                        moduleId
+                );
 
-            core.loggerService().info("Módulo externo descargado: " + moduleId);
-            return true;
-
-        } catch (Exception exception) {
-            failedModules.put(moduleId, exception.getMessage());
-            core.loggerService().error("Error descargando módulo " + moduleId + ": " + exception.getMessage());
-            return false;
-        }
-    }
-
-    public boolean reloadModule(String id) {
-        String moduleId = id.toLowerCase();
-
-        LoadedModule oldModule = loadedModules.get(moduleId);
-
-        if (oldModule == null) {
-            failedModules.put(moduleId, "No está cargado");
+        if (container == null) {
             return false;
         }
 
-        ModuleDescriptor descriptor = oldModule.descriptor();
-
-        boolean wasEnabled = oldModule.instance().status() == ModuleStatus.ENABLED;
-
-        boolean unloaded = unloadModule(moduleId);
-
-        if (!unloaded) {
+        if (
+                !core.moduleManager()
+                        .unregister(moduleId)
+        ) {
             return false;
         }
 
-        boolean loaded = loadModule(descriptor);
+        loadedModules.remove(
+                moduleId
+        );
 
-        if (!loaded) {
-            return false;
-        }
+        closeQuietly(
+                container.classLoader()
+        );
 
-        if (wasEnabled) {
-            core.moduleManager().enable(moduleId);
-        }
+        failedModules.remove(
+                moduleId
+        );
 
-        core.loggerService().info("Módulo externo recargado: " + moduleId);
+        core.loggerService().info(
+                "Módulo descargado: "
+                        + moduleId
+        );
+
         return true;
     }
 
-    public void unloadAll() {
-        List<String> ids = new ArrayList<>(loadedModules.keySet());
-        Collections.reverse(ids);
-        for (String id : ids) {
-            boolean unloaded = unloadModule(id);
-            if (!unloaded) {
-                core.loggerService().warn("No se pudo descargar correctamente el módulo: " + id);
+    public boolean reloadModule(
+            String id
+    ) {
+        ensurePrimaryThread(
+                "recargar módulos"
+        );
+
+        if (id == null) {
+            return false;
+        }
+
+        String targetId =
+                normalizeId(id);
+
+        ModuleContainer target =
+                loadedModules.get(
+                        targetId
+                );
+
+        if (target == null) {
+            core.loggerService().warn(
+                    "No se puede recargar "
+                            + targetId
+                            + ": no está cargado."
+            );
+
+            return false;
+        }
+
+        Set<String> affected =
+                core.moduleManager()
+                        .runtimeDependentsClosure(
+                                targetId
+                        );
+
+        if (affected.isEmpty()) {
+            return false;
+        }
+
+        Map<String, Boolean> enabledBefore =
+                new LinkedHashMap<>();
+
+        Map<String, File> files =
+                new LinkedHashMap<>();
+
+        for (String moduleId : affected) {
+            ModuleContainer container =
+                    loadedModules.get(
+                            moduleId
+                    );
+
+            if (container == null) {
+                continue;
+            }
+
+            enabledBefore.put(
+                    moduleId,
+                    container.status()
+                            == ModuleStatus.ENABLED
+            );
+
+            files.put(
+                    moduleId,
+                    container.descriptor()
+                            .file()
+            );
+        }
+
+        Map<String, ModuleDescriptor> freshDescriptors;
+
+        try {
+            freshDescriptors =
+                    preflightReload(
+                            affected,
+                            files
+                    );
+
+        } catch (Exception exception) {
+            core.loggerService().error(
+                    "Se canceló el reload de "
+                            + targetId
+                            + " durante la validación previa.",
+                    exception
+            );
+
+            return false;
+        }
+
+        List<String> shutdownOrder =
+                core.moduleManager()
+                        .shutdownOrderIds()
+                        .stream()
+                        .filter(
+                                affected::contains
+                        )
+                        .toList();
+
+        List<String> loadOrder =
+                new ArrayList<>(
+                        shutdownOrder
+                );
+
+        Collections.reverse(
+                loadOrder
+        );
+
+        core.loggerService().info(
+                "Reload de "
+                        + targetId
+                        + " afecta a "
+                        + affected.size()
+                        + " módulo(s): "
+                        + String.join(
+                                ", ",
+                                affected
+                        )
+        );
+
+        for (String moduleId : shutdownOrder) {
+            ModuleContainer container =
+                    loadedModules.get(
+                            moduleId
+                    );
+
+            if (container == null) {
+                continue;
+            }
+
+            if (
+                    !core.moduleManager()
+                            .unregister(
+                                    moduleId
+                            )
+            ) {
+                core.loggerService().error(
+                        "No se pudo descargar "
+                                + moduleId
+                                + " durante el reload de "
+                                + targetId
+                                + "."
+                );
+
+                return false;
+            }
+
+            loadedModules.remove(
+                    moduleId
+            );
+
+            closeQuietly(
+                    container.classLoader()
+            );
+        }
+
+        for (
+                Map.Entry<String, ModuleDescriptor> entry :
+                freshDescriptors.entrySet()
+        ) {
+            discoveredModules.put(
+                    entry.getKey(),
+                    entry.getValue()
+            );
+
+            failedModules.remove(
+                    entry.getKey()
+            );
+        }
+
+        boolean loadSuccess = true;
+
+        for (String moduleId : loadOrder) {
+            if (
+                    !loadModuleById(
+                            moduleId
+                    )
+            ) {
+                loadSuccess = false;
+
+                core.loggerService().error(
+                        "No se pudo volver a cargar "
+                                + moduleId
+                                + " durante el reload de "
+                                + targetId
+                                + "."
+                );
             }
         }
-        loadedModules.clear();
+
+        boolean enableSuccess = true;
+
+        for (
+                String moduleId :
+                core.moduleManager()
+                        .startupOrderIds()
+        ) {
+            if (
+                    !affected.contains(moduleId)
+                            || !enabledBefore.getOrDefault(
+                            moduleId,
+                            false
+                    )
+            ) {
+                continue;
+            }
+
+            if (
+                    !core.moduleManager()
+                            .enable(moduleId)
+            ) {
+                enableSuccess = false;
+
+                core.loggerService().error(
+                        "No se pudo reactivar "
+                                + moduleId
+                                + " después del reload de "
+                                + targetId
+                                + "."
+                );
+            }
+        }
+
+        ModuleContainer reloadedTarget =
+                loadedModules.get(
+                        targetId
+                );
+
+        boolean allAffectedLoaded =
+                affected.stream()
+                        .allMatch(
+                                loadedModules::containsKey
+                        );
+
+        boolean success =
+                loadSuccess
+                        && enableSuccess
+                        && reloadedTarget != null
+                        && allAffectedLoaded;
+
+        if (success) {
+            core.eventBus().publish(
+                    new ModuleReloadedEvent(
+                            reloadedTarget.module()
+                    )
+            );
+
+            core.loggerService().info(
+                    "Reload completado: "
+                            + targetId
+            );
+
+        } else {
+            core.loggerService().error(
+                    "El reload de "
+                            + targetId
+                            + " terminó parcialmente."
+            );
+        }
+
+        return success;
+    }
+
+    public void unloadAll() {
+        ensurePrimaryThread(
+                "descargar módulos"
+        );
+
+        List<String> shutdownOrder =
+                core.moduleManager()
+                        .shutdownOrderIds();
+
+        for (String id : shutdownOrder) {
+            ModuleContainer container =
+                    loadedModules.get(id);
+
+            if (container == null) {
+                continue;
+            }
+
+            if (
+                    !core.moduleManager()
+                            .unregister(id)
+            ) {
+                core.loggerService().error(
+                        "No se pudo descargar correctamente el módulo "
+                                + id
+                                + "."
+                );
+
+                continue;
+            }
+
+            loadedModules.remove(id);
+
+            closeQuietly(
+                    container.classLoader()
+            );
+        }
+
+        if (!loadedModules.isEmpty()) {
+            core.loggerService().warn(
+                    "Quedaron "
+                            + loadedModules.size()
+                            + " módulo(s) cargados después de unloadAll()."
+            );
+        }
+    }
+
+    public Optional<ModuleDescriptor> discoveredModule(
+            String id
+    ) {
+        if (id == null) {
+            return Optional.empty();
+        }
+
+        return Optional.ofNullable(
+                discoveredModules.get(
+                        normalizeId(id)
+                )
+        );
+    }
+
+    public boolean isDiscovered(
+            String id
+    ) {
+        return discoveredModule(id)
+                .isPresent();
     }
 
     public List<ModuleDescriptor> discoveredModules() {
-        return List.copyOf(discoveredModules);
+        return List.copyOf(
+                discoveredModules.values()
+        );
     }
 
-    public Map<String, LoadedModule> loadedModules() {
-        return Collections.unmodifiableMap(loadedModules);
+    public Map<String, ModuleContainer> loadedModules() {
+        return Collections.unmodifiableMap(
+                loadedModules
+        );
     }
 
     public Map<String, String> failedModules() {
-        return Collections.unmodifiableMap(failedModules);
+        return Collections.unmodifiableMap(
+                failedModules
+        );
+    }
+
+    private void discoverModule(
+            File file,
+            Set<String> duplicateIds
+    ) {
+        try {
+            ModuleDescriptor descriptor =
+                    readDescriptor(file);
+
+            if (
+                    discoveredModules.containsKey(
+                            descriptor.id()
+                    )
+            ) {
+                duplicateIds.add(
+                        descriptor.id()
+                );
+
+                failedModules.put(
+                        descriptor.id(),
+                        "ID duplicado entre múltiples JARs."
+                );
+
+                core.loggerService().error(
+                        "ID de módulo duplicado: "
+                                + descriptor.id()
+                                + "."
+                );
+
+                return;
+            }
+
+            discoveredModules.put(
+                    descriptor.id(),
+                    descriptor
+            );
+
+            core.loggerService().info(
+                    "Módulo detectado: "
+                            + descriptor.name()
+                            + " v"
+                            + descriptor.version()
+                            + " ("
+                            + descriptor.id()
+                            + ")"
+            );
+
+        } catch (Exception exception) {
+            failedModules.put(
+                    file.getName(),
+                    safeMessage(
+                            exception
+                    )
+            );
+
+            core.loggerService().error(
+                    "Error leyendo módulo "
+                            + file.getName()
+                            + ".",
+                    exception
+            );
+        }
+    }
+
+    private void validateDiscoveredModules() {
+        for (
+                ModuleDescriptor descriptor :
+                discoveredModules.values()
+        ) {
+            try {
+                validateRequiredNode(
+                        descriptor.id(),
+                        discoveredModules,
+                        new LinkedHashSet<>(),
+                        new LinkedHashSet<>()
+                );
+
+            } catch (Exception exception) {
+                failedModules.put(
+                        descriptor.id(),
+                        safeMessage(
+                                exception
+                        )
+                );
+
+                core.loggerService().warn(
+                        "Módulo "
+                                + descriptor.id()
+                                + " tiene un problema de dependencias: "
+                                + safeMessage(exception)
+                );
+            }
+        }
+    }
+
+    private boolean loadModuleById(
+            String id,
+            Set<String> visiting
+    ) {
+        if (
+                loadedModules.containsKey(id)
+        ) {
+            return true;
+        }
+
+        ModuleDescriptor descriptor =
+                discoveredModules.get(id);
+
+        if (descriptor == null) {
+            failedModules.put(
+                    id,
+                    "Descriptor no encontrado."
+            );
+
+            return false;
+        }
+
+        if (!visiting.add(id)) {
+            String cycle =
+                    String.join(
+                            " -> ",
+                            visiting
+                    )
+                            + " -> "
+                            + id;
+
+            failedModules.put(
+                    id,
+                    "Dependencia circular: "
+                            + cycle
+            );
+
+            core.loggerService().error(
+                    "Dependencia circular detectada: "
+                            + cycle
+            );
+
+            return false;
+        }
+
+        try {
+            for (
+                    String dependencyId :
+                    descriptor.dependencies()
+            ) {
+                if (
+                        !loadedModules.containsKey(
+                                dependencyId
+                        )
+                                && !discoveredModules.containsKey(
+                                dependencyId
+                        )
+                ) {
+                    failedModules.put(
+                            id,
+                            "Dependencia faltante: "
+                                    + dependencyId
+                    );
+
+                    core.loggerService().error(
+                            "Dependencia faltante para "
+                                    + id
+                                    + ": "
+                                    + dependencyId
+                    );
+
+                    return false;
+                }
+
+                if (
+                        !loadModuleById(
+                                dependencyId,
+                                visiting
+                        )
+                ) {
+                    failedModules.put(
+                            id,
+                            "No se pudo cargar dependencia: "
+                                    + dependencyId
+                    );
+
+                    return false;
+                }
+            }
+
+            loadAvailableSoftDependencies(
+                    descriptor,
+                    visiting
+            );
+
+            return loadModule(
+                    descriptor
+            );
+
+        } finally {
+            visiting.remove(id);
+        }
+    }
+
+    private void loadAvailableSoftDependencies(
+            ModuleDescriptor descriptor,
+            Set<String> visiting
+    ) {
+        for (
+                String dependencyId :
+                descriptor.softDependencies()
+        ) {
+            if (
+                    loadedModules.containsKey(
+                            dependencyId
+                    )
+            ) {
+                continue;
+            }
+
+            if (
+                    !discoveredModules.containsKey(
+                            dependencyId
+                    )
+            ) {
+                continue;
+            }
+
+            if (
+                    visiting.contains(
+                            dependencyId
+                    )
+            ) {
+                core.loggerService().debug(
+                        "Soft-dependency circular ignorada: "
+                                + descriptor.id()
+                                + " -> "
+                                + dependencyId
+                );
+
+                continue;
+            }
+
+            if (
+                    !loadModuleById(
+                            dependencyId,
+                            visiting
+                    )
+            ) {
+                core.loggerService().warn(
+                        "Soft-dependency "
+                                + dependencyId
+                                + " no pudo cargarse para "
+                                + descriptor.id()
+                                + "."
+                );
+            }
+        }
+    }
+
+    private boolean loadModule(
+            ModuleDescriptor descriptor
+    ) {
+        if (
+                loadedModules.containsKey(
+                        descriptor.id()
+                )
+        ) {
+            return true;
+        }
+
+        AriatusModuleClassLoader classLoader =
+                null;
+
+        try {
+            URL url =
+                    descriptor.file()
+                            .toURI()
+                            .toURL();
+
+            classLoader =
+                    new AriatusModuleClassLoader(
+                            new URL[]{url},
+                            core.getClass()
+                                    .getClassLoader()
+                    );
+
+            wireDependencies(
+                    descriptor,
+                    classLoader
+            );
+
+            Class<?> mainClass =
+                    classLoader.loadClass(
+                            descriptor.main()
+                    );
+
+            if (
+                    !AriatusModule.class
+                            .isAssignableFrom(
+                                    mainClass
+                            )
+            ) {
+                throw new IllegalArgumentException(
+                        "La clase main "
+                                + descriptor.main()
+                                + " no extiende AriatusModule."
+                );
+            }
+
+            AriatusModule module =
+                    (AriatusModule) mainClass
+                            .getDeclaredConstructor()
+                            .newInstance();
+
+            ModuleContainer container =
+                    new ModuleContainer(
+                            core,
+                            descriptor,
+                            module,
+                            classLoader
+                    );
+
+            core.moduleManager()
+                    .register(
+                            container
+                    );
+
+            loadedModules.put(
+                    descriptor.id(),
+                    container
+            );
+
+            failedModules.remove(
+                    descriptor.id()
+            );
+
+            core.loggerService().info(
+                    "Módulo cargado: "
+                            + descriptor.name()
+                            + " v"
+                            + descriptor.version()
+            );
+
+            return true;
+
+        } catch (Exception exception) {
+            closeQuietly(
+                    classLoader
+            );
+
+            failedModules.put(
+                    descriptor.id(),
+                    safeMessage(
+                            exception
+                    )
+            );
+
+            core.loggerService().error(
+                    "No se pudo cargar módulo "
+                            + descriptor.id()
+                            + ".",
+                    exception
+            );
+
+            return false;
+        }
+    }
+
+    private void wireDependencies(
+            ModuleDescriptor descriptor,
+            AriatusModuleClassLoader classLoader
+    ) {
+        for (
+                String dependencyId :
+                descriptor.dependencies()
+        ) {
+            ModuleContainer dependency =
+                    loadedModules.get(
+                            dependencyId
+                    );
+
+            if (dependency == null) {
+                throw new IllegalStateException(
+                        "Dependencia requerida no cargada: "
+                                + dependencyId
+                );
+            }
+
+            classLoader.addDependency(
+                    dependencyId,
+                    dependency.classLoader()
+            );
+        }
+
+        for (
+                String dependencyId :
+                descriptor.softDependencies()
+        ) {
+            ModuleContainer dependency =
+                    loadedModules.get(
+                            dependencyId
+                    );
+
+            if (dependency == null) {
+                continue;
+            }
+
+            classLoader.addDependency(
+                    dependencyId,
+                    dependency.classLoader()
+            );
+        }
+    }
+
+    private Map<String, ModuleDescriptor> preflightReload(
+            Set<String> affected,
+            Map<String, File> files
+    ) throws Exception {
+
+        Map<String, ModuleDescriptor> fresh =
+                new LinkedHashMap<>();
+
+        for (String id : affected) {
+            File file =
+                    files.get(id);
+
+            if (
+                    file == null
+                            || !file.isFile()
+            ) {
+                throw new IllegalStateException(
+                        "El JAR de "
+                                + id
+                                + " ya no existe."
+                );
+            }
+
+            ModuleDescriptor descriptor =
+                    readDescriptor(file);
+
+            if (
+                    !descriptor.id()
+                            .equals(id)
+            ) {
+                throw new IllegalStateException(
+                        "El módulo "
+                                + id
+                                + " cambió su ID a "
+                                + descriptor.id()
+                                + ". Usa unload + scan + load."
+                );
+            }
+
+            fresh.put(
+                    id,
+                    descriptor
+            );
+        }
+
+        Map<String, ModuleDescriptor> futureGraph =
+                new LinkedHashMap<>(
+                        discoveredModules
+                );
+
+        for (
+                ModuleContainer loaded :
+                loadedModules.values()
+        ) {
+            futureGraph.put(
+                    loaded.descriptor().id(),
+                    loaded.descriptor()
+            );
+        }
+
+        futureGraph.putAll(
+                fresh
+        );
+
+        for (String root : affected) {
+            validateRequiredNode(
+                    root,
+                    futureGraph,
+                    new LinkedHashSet<>(),
+                    new LinkedHashSet<>()
+            );
+        }
+
+        return fresh;
+    }
+
+    private void validateRequiredNode(
+            String id,
+            Map<String, ModuleDescriptor> descriptors,
+            Set<String> visiting,
+            Set<String> visited
+    ) {
+        if (visited.contains(id)) {
+            return;
+        }
+
+        ModuleDescriptor descriptor =
+                descriptors.get(id);
+
+        if (descriptor == null) {
+            throw new IllegalStateException(
+                    "Descriptor requerido no encontrado: "
+                            + id
+            );
+        }
+
+        if (!visiting.add(id)) {
+            throw new IllegalStateException(
+                    "Dependencia circular detectada: "
+                            + String.join(
+                            " -> ",
+                            visiting
+                    )
+                            + " -> "
+                            + id
+            );
+        }
+
+        for (
+                String dependencyId :
+                descriptor.dependencies()
+        ) {
+            if (
+                    !descriptors.containsKey(
+                            dependencyId
+                    )
+            ) {
+                throw new IllegalStateException(
+                        "El módulo "
+                                + id
+                                + " requiere "
+                                + dependencyId
+                                + ", pero no existe."
+                );
+            }
+
+            validateRequiredNode(
+                    dependencyId,
+                    descriptors,
+                    visiting,
+                    visited
+            );
+        }
+
+        visiting.remove(id);
+        visited.add(id);
+    }
+
+    private ModuleDescriptor readDescriptor(
+            File file
+    ) throws Exception {
+
+        try (
+                JarFile jarFile =
+                        new JarFile(file)
+        ) {
+            var entry =
+                    jarFile.getJarEntry(
+                            "ariatus-module.yml"
+                    );
+
+            if (entry == null) {
+                throw new IllegalArgumentException(
+                        "No contiene ariatus-module.yml."
+                );
+            }
+
+            try (
+                    InputStream inputStream =
+                            jarFile.getInputStream(
+                                    entry
+                            );
+
+                    InputStreamReader reader =
+                            new InputStreamReader(
+                                    inputStream,
+                                    StandardCharsets.UTF_8
+                            )
+            ) {
+                YamlConfiguration yaml =
+                        YamlConfiguration.loadConfiguration(
+                                reader
+                        );
+
+                return new ModuleDescriptor(
+                        yaml.getString("id"),
+                        yaml.getString("name"),
+                        yaml.getString("main"),
+                        yaml.getString(
+                                "version",
+                                "unknown"
+                        ),
+                        yaml.getStringList(
+                                "dependencies"
+                        ),
+                        yaml.getStringList(
+                                "soft-dependencies"
+                        ),
+                        file
+                );
+            }
+        }
+    }
+
+    private void closeQuietly(
+            AriatusModuleClassLoader classLoader
+    ) {
+        if (classLoader == null) {
+            return;
+        }
+
+        try {
+            classLoader.close();
+
+        } catch (Exception exception) {
+            core.loggerService().warn(
+                    "No se pudo cerrar un ClassLoader de módulo: "
+                            + safeMessage(
+                            exception
+                    )
+            );
+        }
+    }
+
+    private String safeMessage(
+            Exception exception
+    ) {
+        return exception.getMessage() == null
+                ? exception.getClass()
+                .getSimpleName()
+                : exception.getMessage();
+    }
+
+    private String normalizeId(
+            String id
+    ) {
+        return id.trim()
+                .toLowerCase(
+                        Locale.ROOT
+                );
+    }
+
+    private void ensurePrimaryThread(
+            String action
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException(
+                    "AriatusCore solo puede "
+                            + action
+                            + " desde el thread principal."
+            );
+        }
     }
 }

@@ -1,36 +1,58 @@
 package net.ariatus.project.profiler;
 
-public class ProfilerMetric {
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
-    private long executions;
-    private long totalNanos;
-    private long maxNanos;
-    private long errors;
+public final class ProfilerMetric {
 
-    public void record(long nanos) {
-        executions++;
-        totalNanos += nanos;
-        maxNanos = Math.max(maxNanos, nanos);
+    private final LongAdder executions = new LongAdder();
+    private final LongAdder errors = new LongAdder();
+    private final LongAdder totalNanos = new LongAdder();
+
+    private final AtomicLong maxNanos = new AtomicLong();
+
+    private final LongAdder mainThreadExecutions = new LongAdder();
+    private final LongAdder mainThreadTotalNanos = new LongAdder();
+
+    private final AtomicLong mainThreadMaxNanos = new AtomicLong();
+
+    public void record(long nanos, boolean mainThread) {
+        long elapsed = Math.max(0L, nanos);
+
+        executions.increment();
+        totalNanos.add(elapsed);
+
+        maxNanos.accumulateAndGet(
+                elapsed,
+                Math::max
+        );
+
+        if (!mainThread) {
+            return;
+        }
+
+        mainThreadExecutions.increment();
+        mainThreadTotalNanos.add(elapsed);
+
+        mainThreadMaxNanos.accumulateAndGet(
+                elapsed,
+                Math::max
+        );
     }
 
     public void recordError() {
-        errors++;
+        errors.increment();
     }
 
-    public long executions() {
-        return executions;
-    }
-
-    public double averageMillis() {
-        if (executions == 0) return 0.0;
-        return (totalNanos / 1_000_000.0) / executions;
-    }
-
-    public double maxMillis() {
-        return maxNanos / 1_000_000.0;
-    }
-
-    public long errors() {
-        return errors;
+    public ProfilerMetricSnapshot snapshot() {
+        return new ProfilerMetricSnapshot(
+                executions.sum(),
+                errors.sum(),
+                totalNanos.sum(),
+                maxNanos.get(),
+                mainThreadExecutions.sum(),
+                mainThreadTotalNanos.sum(),
+                mainThreadMaxNanos.get()
+        );
     }
 }

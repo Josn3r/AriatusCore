@@ -1,325 +1,1581 @@
 package net.ariatus.project.command;
 
+import net.ariatus.project.AriatusCore;
 import net.ariatus.project.message.MessageService;
-import net.ariatus.project.module.AriatusModule;
+import net.ariatus.project.module.ModuleContainer;
+import net.ariatus.project.module.ModuleDescriptor;
 import net.ariatus.project.module.ModuleManager;
 import net.ariatus.project.module.ModuleStatus;
+import net.ariatus.project.profiler.ModuleProfileSnapshot;
+import net.ariatus.project.profiler.ProfilerCategory;
+import net.ariatus.project.profiler.ProfilerMetricSnapshot;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.jspecify.annotations.NonNull;
 
-public class AriatusCommand implements CommandExecutor {
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+public final class AriatusCommand implements CommandExecutor {
 
     private final ModuleManager moduleManager;
+    private final AriatusCore core;
 
-    public AriatusCommand(ModuleManager moduleManager) {
-        this.moduleManager = moduleManager;
+    public AriatusCommand(
+            ModuleManager moduleManager
+    ) {
+        this.moduleManager =
+                moduleManager;
+
+        this.core =
+                moduleManager.core();
     }
 
     @Override
-    public boolean onCommand(@NonNull CommandSender sender, @NonNull Command command, @NonNull String label, String[] args) {
+    public boolean onCommand(
+            CommandSender sender,
+            Command command,
+            String label,
+            String[] args
+    ) {
+        if (
+                !sender.hasPermission(
+                        "ariatus.admin"
+                )
+        ) {
+            MessageService.send(
+                    sender,
+                    "<red>No tienes permiso para administrar AriatusCore.</red>"
+            );
 
-        if (!sender.hasPermission("ariatus.admin")) {
-            MessageService.send(sender, "<red>No tienes permisos para usar este comando.</red>");
             return true;
         }
 
         if (args.length == 0) {
-            MessageService.send(sender, "<gradient:#8A2BE2:#00D4FF><bold>AriatusCore</bold></gradient> <gray>v0.1</gray>");
-            MessageService.send(sender, "<yellow>/ariatus reload</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus health</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus profiler</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus database</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus migrations</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus modules</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus scanmodules</yellow>");
-            MessageService.send(sender, "<yellow>/ariatus module enable <id></yellow>");
-            MessageService.send(sender, "<yellow>/ariatus module disable <id></yellow>");
-            MessageService.send(sender, "<yellow>/ariatus module reload <id></yellow>");
+            sendHelp(sender);
             return true;
         }
 
-        var moduleCommand = moduleManager.commandManager().getCommand(args[0]);
+        String action =
+                args[0].toLowerCase(
+                        Locale.ROOT
+                );
 
-        if (moduleCommand.isPresent()) {
-            String[] subArgs = java.util.Arrays.copyOfRange(args, 1, args.length);
+        try {
+            return switch (action) {
+                case "help" -> {
+                    sendHelp(sender);
+                    yield true;
+                }
 
-            long start = System.nanoTime();
+                case "status" -> {
+                    sendStatus(sender);
+                    yield true;
+                }
 
-            try {
-                return moduleCommand.get().execute(sender, subArgs);
-            } catch (Exception exception) {
-                moduleManager.core().loggerService().error("Error ejecutando comando de módulo: " + args[0] + " - " + exception.getMessage());
-                return true;
-            } finally {
-                long elapsed = System.nanoTime() - start;
-                moduleManager.core().profiler().record("command:" + args[0].toLowerCase(), elapsed);
-            }
-        }
+                case "modules" -> {
+                    sendModules(sender);
+                    yield true;
+                }
 
-        if (args[0].equalsIgnoreCase("reload")) {
-            moduleManager.core().configManager().reload();
-            moduleManager.core().messages().reload();
-            MessageService.send(sender, "<green>Configuración de AriatusCore recargada.</green>");
+                case "info" -> {
+                    handleInfo(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "scan" -> {
+                    handleScan(sender);
+                    yield true;
+                }
+
+                case "load" -> {
+                    handleLoad(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "enable" -> {
+                    handleEnable(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "disable" -> {
+                    handleDisable(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "reload" -> {
+                    handleReload(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "unload" -> {
+                    handleUnload(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "profiler" -> {
+                    handleProfiler(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "profile" -> {
+                    handleProfile(
+                            sender,
+                            args
+                    );
+
+                    yield true;
+                }
+
+                case "version" -> {
+                    sendVersion(sender);
+                    yield true;
+                }
+
+                default -> {
+                    MessageService.send(
+                            sender,
+                            "<red>Subcomando desconocido:</red> <yellow>"
+                                    + action
+                                    + "</yellow>"
+                    );
+
+                    MessageService.send(
+                            sender,
+                            "<gray>Usa</gray> <aqua>/ariatus help</aqua><gray>.</gray>"
+                    );
+
+                    yield true;
+                }
+            };
+
+        } catch (Exception exception) {
+            core.loggerService()
+                    .error(
+                            "Error ejecutando /ariatus "
+                                    + action
+                                    + ".",
+                            exception
+                    );
+
+            MessageService.send(
+                    sender,
+                    "<red>Ocurrió un error ejecutando la operación.</red> <gray>Revisa la consola.</gray>"
+            );
+
             return true;
         }
+    }
 
-        if (args[0].equalsIgnoreCase("version")) {
-            var core = moduleManager.core();
+    private void sendHelp(
+            CommandSender sender
+    ) {
+        MessageService.send(
+                sender,
+                ""
+        );
 
-            MessageService.send(sender, "<gradient:#8A2BE2:#00D4FF><bold>AriatusCore</bold></gradient>");
-            MessageService.send(sender, "<gray>Versión:</gray> <aqua>" + core.getPluginMeta().getVersion() + "</aqua>");
-            MessageService.send(sender, "<gray>Servidor:</gray> <yellow>" + core.getServer().getName() + "</yellow>");
-            MessageService.send(sender, "<gray>Minecraft:</gray> <yellow>" + core.getServer().getMinecraftVersion() + "</yellow>");
-            MessageService.send(sender, "<gray>Java:</gray> <yellow>" + System.getProperty("java.version") + "</yellow>");
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>ARIATUSCORE 2.0</bold></gradient>"
+        );
 
-            return true;
-        }
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
 
-        if (args[0].equalsIgnoreCase("health")) {
-            var core = moduleManager.core();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus status</aqua> <gray>- Estado general.</gray>"
+        );
 
-            MessageService.send(sender, "<gold>Estado de AriatusCore:</gold>");
-            MessageService.send(sender, "<gray>Database:</gray> <yellow>" + core.databaseService().status() + "</yellow>");
-            MessageService.send(sender, "<gray>Módulos registrados:</gray> <aqua>" + moduleManager.getModules().size() + "</aqua>");
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus modules</aqua> <gray>- Lista de módulos.</gray>"
+        );
 
-            long enabledModules = moduleManager.getModules().stream()
-                    .filter(module -> module.status().name().equalsIgnoreCase("ENABLED"))
-                    .count();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus info <id></aqua> <gray>- Información de un módulo.</gray>"
+        );
 
-            MessageService.send(sender, "<gray>Módulos activos:</gray> <aqua>" + enabledModules + "</aqua>");
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus profile <id></aqua> <gray>- Métricas detalladas.</gray>"
+        );
 
-            int totalTasks = moduleManager.getModules().stream()
-                    .mapToInt(module -> moduleManager.taskManager().activeTasks(module))
-                    .sum();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus profiler</aqua> <gray>- Resumen del profiler.</gray>"
+        );
 
-            int totalListeners = moduleManager.getModules().stream()
-                    .mapToInt(module -> moduleManager.listenerManager().activeListeners(module))
-                    .sum();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus profiler reset [id]</aqua> <gray>- Reinicia métricas.</gray>"
+        );
 
-            int totalCommands = moduleManager.getModules().stream()
-                    .mapToInt(module -> moduleManager.commandManager().activeCommands(module))
-                    .sum();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus scan</aqua> <gray>- Reescanea JARs.</gray>"
+        );
 
-            MessageService.send(sender, "<gray>Tasks activas:</gray> <aqua>" + totalTasks + "</aqua>");
-            MessageService.send(sender, "<gray>Listeners activos:</gray> <aqua>" + totalListeners + "</aqua>");
-            MessageService.send(sender, "<gray>Comandos de módulos:</gray> <aqua>" + totalCommands + "</aqua>");
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus load <id></aqua> <gray>- Carga un módulo.</gray>"
+        );
 
-            MessageService.send(sender, "<gray>Módulos externos cargados:</gray> <aqua>" + core.moduleLoader().loadedModules().size() + "</aqua>");
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus enable <id></aqua> <gray>- Activa un módulo.</gray>"
+        );
 
-            return true;
-        }
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus disable <id></aqua> <gray>- Desactiva un módulo.</gray>"
+        );
 
-        if (args[0].equalsIgnoreCase("modules")) {
-            var modules = moduleManager.getModules();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus reload <id></aqua> <gray>- Hard reload.</gray>"
+        );
 
-            var enabled = modules.stream()
-                    .filter(module -> module.status() == ModuleStatus.ENABLED)
-                    .toList();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus unload <id></aqua> <gray>- Descarga completamente.</gray>"
+        );
 
-            var disabled = modules.stream()
-                    .filter(module -> module.status() == ModuleStatus.DISABLED)
-                    .toList();
+        MessageService.send(
+                sender,
+                "<aqua>/ariatus version</aqua> <gray>- Información de versión.</gray>"
+        );
 
-            var failed = moduleManager.core().moduleLoader().failedModules();
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
 
-            MessageService.send(sender, "");
-            MessageService.send(sender, "<gradient:#8A2BE2:#00D4FF><bold>ARIATUS MODULES</bold></gradient>");
-            MessageService.send(sender, "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>");
-            MessageService.send(sender, "<gray>Total:</gray> <white>" + modules.size() + "</white> "
-                    + "<dark_gray>|</dark_gray> <green>Activos:</green> <white>" + enabled.size() + "</white> "
-                    + "<dark_gray>|</dark_gray> <red>Inactivos:</red> <white>" + disabled.size() + "</white> "
-                    + "<dark_gray>|</dark_gray> <yellow>Fallidos:</yellow> <white>" + failed.size() + "</white>");
+        MessageService.send(
+                sender,
+                ""
+        );
+    }
 
-            MessageService.send(sender, "");
+    private void sendStatus(
+            CommandSender sender
+    ) {
+        var containers =
+                moduleManager.getContainers();
 
-            MessageService.send(sender, "<green><bold>Habilitados (" + enabled.size() + ")</bold></green><gray>:</gray> "
-                    + formatModules(enabled));
+        long enabled =
+                containers.stream()
+                        .filter(
+                                ModuleContainer::isEnabled
+                        )
+                        .count();
 
-            MessageService.send(sender, "<red><bold>Desactivados (" + disabled.size() + ")</bold></red><gray>:</gray> "
-                    + formatModules(disabled));
+        long errors =
+                containers.stream()
+                        .filter(container ->
+                                container.status()
+                                        == ModuleStatus.ERROR
+                        )
+                        .count();
 
-            if (!failed.isEmpty()) {
-                MessageService.send(sender, "<yellow><bold>Fallidos (" + failed.size() + ")</bold></yellow><gray>:</gray> "
-                        + formatFailedModules(failed));
-            }
+        int tasks =
+                containers.stream()
+                        .mapToInt(container ->
+                                moduleManager.taskManager()
+                                        .activeTasks(
+                                                container.module()
+                                        )
+                        )
+                        .sum();
 
-            MessageService.send(sender, "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>");
-            MessageService.send(sender, "<gray>Usa</gray> <aqua>/ariatus module info <id></aqua> <gray>para ver detalles.</gray>");
-            MessageService.send(sender, "");
+        int listeners =
+                containers.stream()
+                        .mapToInt(container ->
+                                moduleManager.listenerManager()
+                                        .activeListeners(
+                                                container.module()
+                                        )
+                        )
+                        .sum();
 
-            return true;
-        }
+        int commands =
+                containers.stream()
+                        .mapToInt(container ->
+                                moduleManager.commandManager()
+                                        .activeCommands(
+                                                container.module()
+                                        )
+                        )
+                        .sum();
 
-        if (args[0].equalsIgnoreCase("scanmodules")) {
-            moduleManager.core().moduleLoader().discoverModules();
-            MessageService.send(sender, "<green>Escaneo de módulos completado.</green>");
-            return true;
-        }
+        int services =
+                containers.stream()
+                        .mapToInt(container ->
+                                core.services()
+                                        .countOwned(
+                                                container.module()
+                                        )
+                        )
+                        .sum();
 
-        if (args[0].equalsIgnoreCase("profiler")) {
-            MessageService.send(sender, "<gold>Profiler de módulos:</gold>");
+        int resources =
+                containers.stream()
+                        .mapToInt(container ->
+                                container.module()
+                                        .resources()
+                                        .active()
+                        )
+                        .sum();
 
-            for (var entry : moduleManager.core().profiler().all().entrySet()) {
-                var moduleId = entry.getKey();
-                var metric = entry.getValue();
+        int configs =
+                containers.stream()
+                        .mapToInt(container ->
+                                core.moduleConfigManager()
+                                        .loaded(
+                                                container.module()
+                                        )
+                        )
+                        .sum();
 
-                MessageService.send(sender,
-                        "<yellow>" + moduleId + "</yellow>" +
-                                " <gray>| ejecuciones:</gray> <aqua>" + metric.executions() + "</aqua>" +
-                                " <gray>| media:</gray> <aqua>" + String.format("%.3f", metric.averageMillis()) + "ms</aqua>" +
-                                " <gray>| max:</gray> <aqua>" + String.format("%.3f", metric.maxMillis()) + "ms</aqua>" +
-                                " <gray>| errores:</gray> <red>" + metric.errors() + "</red>"
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>ARIATUS STATUS</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Runtime:</gray> "
+                        + runtimeText()
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Database:</gray> <yellow>"
+                        + core.databaseService()
+                        .status()
+                        + "</yellow>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Descubiertos:</gray> <aqua>"
+                        + core.moduleLoader()
+                        .discoveredModules()
+                        .size()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Cargados:</gray> <aqua>"
+                        + containers.size()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Activos:</gray> <green>"
+                        + enabled
+                        + "</green>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Errores:</gray> <red>"
+                        + errors
+                        + "</red>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>JARs fallidos:</gray> <yellow>"
+                        + core.moduleLoader()
+                        .failedModules()
+                        .size()
+                        + "</yellow>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>────────────────────────────────────</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Tasks:</gray> <aqua>"
+                        + tasks
+                        + "</aqua>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Listeners:</gray> <aqua>"
+                        + listeners
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Commands:</gray> <aqua>"
+                        + commands
+                        + "</aqua>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Services:</gray> <aqua>"
+                        + services
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Resources:</gray> <aqua>"
+                        + resources
+                        + "</aqua>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Configs:</gray> <aqua>"
+                        + configs
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
+    }
+
+    private void sendModules(
+            CommandSender sender
+    ) {
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>ARIATUS MODULES</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        var containers =
+                moduleManager.getContainers()
+                        .stream()
+                        .sorted(
+                                Comparator.comparing(
+                                        container ->
+                                                container.descriptor()
+                                                        .id()
+                                )
+                        )
+                        .toList();
+
+        if (containers.isEmpty()) {
+            MessageService.send(
+                    sender,
+                    "<gray>No hay módulos cargados.</gray>"
+            );
+
+        } else {
+            for (
+                    ModuleContainer container :
+                    containers
+            ) {
+                ModuleDescriptor descriptor =
+                        container.descriptor();
+
+                MessageService.send(
+                        sender,
+                        statusSymbol(
+                                container.status()
+                        )
+                                + " <white>"
+                                + descriptor.id()
+                                + "</white>"
+                                + " <dark_gray>v"
+                                + descriptor.version()
+                                + "</dark_gray> "
+                                + statusText(
+                                container.status()
+                        )
                 );
             }
-
-            return true;
         }
 
-        if (args[0].equalsIgnoreCase("database")) {
-            var database = moduleManager.core().databaseService();
+        List<ModuleDescriptor> unloaded =
+                core.moduleLoader()
+                        .discoveredModules()
+                        .stream()
+                        .filter(descriptor ->
+                                !core.moduleLoader()
+                                        .loadedModules()
+                                        .containsKey(
+                                                descriptor.id()
+                                        )
+                        )
+                        .sorted(
+                                Comparator.comparing(
+                                        ModuleDescriptor::id
+                                )
+                        )
+                        .toList();
 
-            MessageService.send(sender, "<gold>Database status:</gold> <yellow>" + database.status() + "</yellow>");
+        if (!unloaded.isEmpty()) {
+            MessageService.send(
+                    sender,
+                    ""
+            );
 
-            database.testConnection().thenAccept(success -> {
-                if (success) {
-                    MessageService.send(sender, "<green>Conexión SQL válida.</green>");
+            MessageService.send(
+                    sender,
+                    "<gray>Detectados pero no cargados:</gray>"
+            );
+
+            for (
+                    ModuleDescriptor descriptor :
+                    unloaded
+            ) {
+                String failure =
+                        core.moduleLoader()
+                                .failedModules()
+                                .get(
+                                        descriptor.id()
+                                );
+
+                if (failure != null) {
+                    MessageService.send(
+                            sender,
+                            "<red>!</red> <white>"
+                                    + descriptor.id()
+                                    + "</white> <red>"
+                                    + failure
+                                    + "</red>"
+                    );
+
                 } else {
-                    MessageService.send(sender, "<red>No se pudo validar la conexión SQL.</red>");
-                }
-            });
-
-            return true;
-        }
-
-        if (args[0].equalsIgnoreCase("migrations")) {
-            moduleManager.core().migrationManager().runMigrations();
-            MessageService.send(sender, "<green>Migraciones ejecutándose en segundo plano.</green>");
-            return true;
-        }
-
-        if (args[0].equalsIgnoreCase("module")) {
-            if (args.length < 3) {
-                MessageService.send(sender, "<yellow>Uso: /ariatus module enable <id></yellow>");
-                MessageService.send(sender, "<yellow>Uso: /ariatus module disable <id></yellow>");
-                MessageService.send(sender, "<yellow>Uso: /ariatus module reload <id></yellow>");
-                MessageService.send(sender, "<yellow>Uso: /ariatus module load <id></yellow>");
-                MessageService.send(sender, "<yellow>Uso: /ariatus module unload <id></yellow>");
-                MessageService.send(sender, "<yellow>Uso: /ariatus module info <id></yellow>");
-                return true;
-            }
-
-            String action = args[1];
-            String moduleId = args[2];
-
-            boolean result;
-
-            switch (action.toLowerCase()) {
-                case "enable" -> result = moduleManager.enable(moduleId);
-                case "disable" -> result = moduleManager.disable(moduleId);
-                case "unload" -> {
-                    result = moduleManager.core().moduleLoader().unloadModule(moduleId);
-                }
-                case "load" -> {
-                    moduleManager.core().moduleLoader().discoverModules();
-                    moduleManager.core().moduleLoader().loadModules();
-                    result = moduleManager.getModule(moduleId).isPresent();
-                }
-                case "reload" -> {
-                    result = moduleManager.core().moduleLoader().reloadModule(moduleId);
-                }
-                case "profile" -> {
-                    var optionalModule = moduleManager.getModule(moduleId);
-
-                    if (optionalModule.isEmpty()) {
-                        MessageService.send(sender, "<red>Módulo no encontrado: " + moduleId + "</red>");
-                        return true;
-                    }
-
-                    var module = optionalModule.get();
-                    var metrics = moduleManager.taskManager().metrics(module);
-
-                    MessageService.send(sender, "<gold>Perfil del módulo:</gold> <yellow>" + module.id() + "</yellow>");
-                    MessageService.send(sender, "<gray>Tasks activas:</gray> <aqua>" + moduleManager.taskManager().activeTasks(module) + "</aqua>");
-                    MessageService.send(sender, "<gray>Listeners activos:</gray> <aqua>" + moduleManager.listenerManager().activeListeners(module) + "</aqua>");
-                    MessageService.send(sender, "<gray>Comandos activos:</gray> <aqua>" + moduleManager.commandManager().activeCommands(module) + "</aqua>");
-                    MessageService.send(sender, "<gray>Ejecuciones:</gray> <aqua>" + metrics.executions() + "</aqua>");
-                    MessageService.send(sender, "<gray>Media:</gray> <aqua>" + String.format("%.3f", metrics.averageMillis()) + "ms</aqua>");
-                    MessageService.send(sender, "<gray>Máximo:</gray> <aqua>" + String.format("%.3f", metrics.maxMillis()) + "ms</aqua>");
-                    MessageService.send(sender, "<gray>Errores:</gray> <red>" + metrics.errors() + "</red>");
-                    return true;
-                }
-                case "info" -> {
-                    var optionalModule = moduleManager.getModule(moduleId);
-
-                    if (optionalModule.isEmpty()) {
-                        MessageService.send(sender, "<red>Módulo no encontrado: " + moduleId + "</red>");
-                        return true;
-                    }
-
-                    var module = optionalModule.get();
-
-                    MessageService.send(sender, "<gold>Información del módulo:</gold>");
-                    MessageService.send(sender, "<gray>ID:</gray> <yellow>" + module.id() + "</yellow>");
-                    MessageService.send(sender, "<gray>Nombre:</gray> <white>" + module.name() + "</white>");
-                    MessageService.send(sender, "<gray>Estado:</gray> <aqua>" + module.status() + "</aqua>");
-                    MessageService.send(sender, "<gray>Dependencias:</gray> <aqua>" + module.dependencies() + "</aqua>");
-                    MessageService.send(sender, "<gray>Tasks:</gray> <aqua>" + moduleManager.taskManager().activeTasks(module) + "</aqua>");
-                    MessageService.send(sender, "<gray>Listeners:</gray> <aqua>" + moduleManager.listenerManager().activeListeners(module) + "</aqua>");
-                    MessageService.send(sender, "<gray>Comandos:</gray> <aqua>" + moduleManager.commandManager().activeCommands(module) + "</aqua>");
-
-                    return true;
-                }
-                default -> {
-                    MessageService.send(sender, "<red>Acción desconocida.</red>");
-                    return true;
+                    MessageService.send(
+                            sender,
+                            "<dark_gray>○</dark_gray> <white>"
+                                    + descriptor.id()
+                                    + "</white> <dark_gray>v"
+                                    + descriptor.version()
+                                    + "</dark_gray> <gray>DISCOVERED</gray>"
+                    );
                 }
             }
+        }
 
-            if (!result) {
-                MessageService.send(sender, "<red>Módulo no encontrado: " + moduleId + "</red>");
-                return true;
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
+    }
+
+    private void handleInfo(
+            CommandSender sender,
+            String[] args
+    ) {
+        if (args.length < 2) {
+            MessageService.send(
+                    sender,
+                    "<yellow>Uso: /ariatus info <id></yellow>"
+            );
+
+            return;
+        }
+
+        String id =
+                normalizeId(
+                        args[1]
+                );
+
+        Optional<ModuleContainer> loaded =
+                moduleManager.getContainer(id);
+
+        if (loaded.isPresent()) {
+            sendLoadedModuleInfo(
+                    sender,
+                    loaded.get()
+            );
+
+            return;
+        }
+
+        Optional<ModuleDescriptor> discovered =
+                core.moduleLoader()
+                        .discoveredModule(id);
+
+        if (discovered.isPresent()) {
+            sendDiscoveredModuleInfo(
+                    sender,
+                    discovered.get()
+            );
+
+            return;
+        }
+
+        MessageService.send(
+                sender,
+                "<red>Módulo no encontrado:</red> <yellow>"
+                        + id
+                        + "</yellow>"
+        );
+    }
+
+    private void handleProfiler(
+            CommandSender sender,
+            String[] args
+    ) {
+        if (
+                args.length >= 2
+                        && args[1].equalsIgnoreCase(
+                        "reset"
+                )
+        ) {
+            if (args.length >= 3) {
+                String id =
+                        normalizeId(
+                                args[2]
+                        );
+
+                core.profiler()
+                        .reset(id);
+
+                MessageService.send(
+                        sender,
+                        "<green>Métricas reiniciadas:</green> <yellow>"
+                                + id
+                                + "</yellow>"
+                );
+
+                return;
             }
 
-            MessageService.send(sender, "<green>Acción ejecutada sobre módulo:</green> <yellow>" + moduleId + "</yellow>");
-            return true;
+            core.profiler()
+                    .resetAll();
+
+            MessageService.send(
+                    sender,
+                    "<green>Todas las métricas del profiler fueron reiniciadas.</green>"
+            );
+
+            return;
         }
 
-        MessageService.send(sender, "<red>Comando desconocido.</red>");
-        return true;
+        Set<String> ids =
+                new LinkedHashSet<>();
+
+        moduleManager.getContainers()
+                .forEach(container ->
+                        ids.add(
+                                container.descriptor()
+                                        .id()
+                        )
+                );
+
+        ids.addAll(
+                core.profiler()
+                        .moduleIds()
+        );
+
+        List<ModuleProfileSnapshot> snapshots =
+                ids.stream()
+                        .map(
+                                core.profiler()::snapshot
+                        )
+                        .sorted(
+                                Comparator.comparingDouble(
+                                        ModuleProfileSnapshot::mainThreadTotalMillis
+                                )
+                                        .reversed()
+                        )
+                        .toList();
+
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>ARIATUS PROFILER</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        if (snapshots.isEmpty()) {
+            MessageService.send(
+                    sender,
+                    "<gray>Todavía no existen métricas.</gray>"
+            );
+
+        } else {
+            for (
+                    ModuleProfileSnapshot snapshot :
+                    snapshots
+            ) {
+                MessageService.send(
+                        sender,
+                        "<white>"
+                                + snapshot.moduleId()
+                                + "</white>"
+                                + " <dark_gray>|</dark_gray> "
+                                + "<gray>Main:</gray> <aqua>"
+                                + decimal(
+                                snapshot.mainThreadTotalMillis()
+                        )
+                                + "ms</aqua>"
+                                + " <dark_gray>|</dark_gray> "
+                                + "<gray>Total:</gray> <aqua>"
+                                + decimal(
+                                snapshot.totalMillis()
+                        )
+                                + "ms</aqua>"
+                                + " <dark_gray>|</dark_gray> "
+                                + "<gray>Calls:</gray> <yellow>"
+                                + snapshot.totalExecutions()
+                                + "</yellow>"
+                                + " <dark_gray>|</dark_gray> "
+                                + "<gray>Errors:</gray> <red>"
+                                + snapshot.totalErrors()
+                                + "</red>"
+                );
+            }
+        }
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Usa</gray> <aqua>/ariatus profile <id></aqua> <gray>para el desglose.</gray>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
     }
 
-    private String formatModules(java.util.List<AriatusModule> modules) {
-        if (modules.isEmpty()) {
-            return "<dark_gray>Ninguno</dark_gray>";
+    private void handleProfile(
+            CommandSender sender,
+            String[] args
+    ) {
+        if (args.length < 2) {
+            MessageService.send(
+                    sender,
+                    "<yellow>Uso: /ariatus profile <id></yellow>"
+            );
+
+            return;
         }
 
-        return modules.stream()
-                .map(module -> {
-                    String version = resolveModuleVersion(module);
-                    return "<white>" + module.name() + "</white> <dark_gray>(</dark_gray><aqua>v" + version + "</aqua><dark_gray>)</dark_gray>";
-                })
-                .collect(java.util.stream.Collectors.joining("<dark_gray>, </dark_gray>"));
+        String id =
+                normalizeId(
+                        args[1]
+                );
+
+        Optional<ModuleContainer> container =
+                moduleManager.getContainer(id);
+
+        boolean historical =
+                core.profiler()
+                        .hasData(id);
+
+        if (
+                container.isEmpty()
+                        && !historical
+        ) {
+            MessageService.send(
+                    sender,
+                    "<red>No existen métricas para:</red> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+            return;
+        }
+
+        ModuleProfileSnapshot snapshot =
+                core.profiler()
+                        .snapshot(id);
+
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>PROFILE: "
+                        + id
+                        + "</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        if (container.isPresent()) {
+            ModuleContainer loaded =
+                    container.get();
+
+            MessageService.send(
+                    sender,
+                    "<gray>Estado:</gray> "
+                            + statusText(
+                            loaded.status()
+                    )
+            );
+
+            MessageService.send(
+                    sender,
+                    "<gray>Tasks activas:</gray> <aqua>"
+                            + moduleManager.taskManager()
+                            .activeTasks(
+                                    loaded.module()
+                            )
+                            + "</aqua>"
+            );
+
+            MessageService.send(
+                    sender,
+                    "<gray>Listeners:</gray> <aqua>"
+                            + moduleManager.listenerManager()
+                            .activeListeners(
+                                    loaded.module()
+                            )
+                            + "</aqua>"
+            );
+
+            MessageService.send(
+                    sender,
+                    "<gray>Commands:</gray> <aqua>"
+                            + moduleManager.commandManager()
+                            .activeCommands(
+                                    loaded.module()
+                            )
+                            + "</aqua>"
+            );
+
+        } else {
+            MessageService.send(
+                    sender,
+                    "<gray>Estado:</gray> <dark_gray>UNLOADED</dark_gray>"
+            );
+        }
+
+        MessageService.send(
+                sender,
+                "<gray>Ejecuciones:</gray> <yellow>"
+                        + snapshot.totalExecutions()
+                        + "</yellow>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Errores:</gray> <red>"
+                        + snapshot.totalErrors()
+                        + "</red>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Tiempo acumulado:</gray> <aqua>"
+                        + decimal(
+                        snapshot.totalMillis()
+                )
+                        + "ms</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Main thread acumulado:</gray> <aqua>"
+                        + decimal(
+                        snapshot.mainThreadTotalMillis()
+                )
+                        + "ms</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Main thread promedio:</gray> <aqua>"
+                        + decimal(
+                        snapshot.mainThreadAverageMillis()
+                )
+                        + "ms</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<dark_gray>────────────────────────────────────────────</dark_gray>"
+        );
+
+        for (
+                ProfilerCategory category :
+                ProfilerCategory.values()
+        ) {
+            ProfilerMetricSnapshot metric =
+                    snapshot.metric(
+                            category
+                    );
+
+            sendMetric(
+                    sender,
+                    category,
+                    metric
+            );
+        }
+
+        MessageService.send(
+                sender,
+                "<dark_gray>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</dark_gray>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
     }
 
-    private String formatFailedModules(java.util.Map<String, String> failedModules) {
-        if (failedModules.isEmpty()) {
-            return "<dark_gray>Ninguno</dark_gray>";
-        }
+    private void sendMetric(
+            CommandSender sender,
+            ProfilerCategory category,
+            ProfilerMetricSnapshot metric
+    ) {
+        MessageService.send(
+                sender,
+                "<white><bold>"
+                        + category.displayName()
+                        + "</bold></white>"
+        );
 
-        return failedModules.entrySet().stream()
-                .map(entry -> "<white>" + entry.getKey() + "</white> <dark_gray>(</dark_gray><yellow>" + entry.getValue() + "</yellow><dark_gray>)</dark_gray>")
-                .collect(java.util.stream.Collectors.joining("<dark_gray>, </dark_gray>"));
+        MessageService.send(
+                sender,
+                "  <gray>Calls:</gray> <yellow>"
+                        + metric.executions()
+                        + "</yellow>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Errors:</gray> <red>"
+                        + metric.errors()
+                        + "</red>"
+        );
+
+        MessageService.send(
+                sender,
+                "  <gray>Avg:</gray> <aqua>"
+                        + decimal(
+                        metric.averageMillis()
+                )
+                        + "ms</aqua>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Max:</gray> <aqua>"
+                        + decimal(
+                        metric.maxMillis()
+                )
+                        + "ms</aqua>"
+                        + " <dark_gray>|</dark_gray> "
+                        + "<gray>Total:</gray> <aqua>"
+                        + decimal(
+                        metric.totalMillis()
+                )
+                        + "ms</aqua>"
+        );
+
+        if (
+                metric.mainThreadExecutions()
+                        > 0
+        ) {
+            MessageService.send(
+                    sender,
+                    "  <gray>Main:</gray> <aqua>"
+                            + decimal(
+                            metric.mainThreadTotalMillis()
+                    )
+                            + "ms</aqua>"
+                            + " <dark_gray>|</dark_gray> "
+                            + "<gray>Main Max:</gray> <aqua>"
+                            + decimal(
+                            metric.mainThreadMaxMillis()
+                    )
+                            + "ms</aqua>"
+            );
+        }
     }
 
-    private String resolveModuleVersion(AriatusModule module) {
-        var loadedModule = moduleManager.core().moduleLoader().loadedModules().get(module.id());
+    private void handleScan(
+            CommandSender sender
+    ) {
+        core.moduleLoader()
+                .discoverModules();
 
-        if (loadedModule == null) {
-            return "unknown";
+        MessageService.send(
+                sender,
+                "<green>Escaneo completado.</green>"
+        );
+    }
+
+    private void handleLoad(
+            CommandSender sender,
+            String[] args
+    ) {
+        String id =
+                requireModuleId(
+                        sender,
+                        args,
+                        "load"
+                );
+
+        if (id == null) {
+            return;
         }
 
-        return loadedModule.descriptor().version();
+        if (
+                core.moduleLoader()
+                        .loadedModules()
+                        .containsKey(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<yellow>El módulo ya está cargado:</yellow> <white>"
+                            + id
+                            + "</white>"
+            );
+
+            return;
+        }
+
+        if (
+                !core.moduleLoader()
+                        .isDiscovered(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<red>El módulo no está en el catálogo actual:</red> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+            return;
+        }
+
+        if (
+                core.moduleLoader()
+                        .loadModuleById(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<green>Módulo cargado:</green> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+        } else {
+            sendOperationFailure(
+                    sender,
+                    id,
+                    "cargar"
+            );
+        }
+    }
+
+    private void handleEnable(
+            CommandSender sender,
+            String[] args
+    ) {
+        String id =
+                requireModuleId(
+                        sender,
+                        args,
+                        "enable"
+                );
+
+        if (id == null) {
+            return;
+        }
+
+        if (
+                moduleManager.enable(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<green>Módulo activado:</green> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+        } else {
+            sendOperationFailure(
+                    sender,
+                    id,
+                    "activar"
+            );
+        }
+    }
+
+    private void handleDisable(
+            CommandSender sender,
+            String[] args
+    ) {
+        String id =
+                requireModuleId(
+                        sender,
+                        args,
+                        "disable"
+                );
+
+        if (id == null) {
+            return;
+        }
+
+        if (
+                moduleManager.disable(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<green>Módulo desactivado:</green> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+        } else {
+            sendOperationFailure(
+                    sender,
+                    id,
+                    "desactivar"
+            );
+        }
+    }
+
+    private void handleReload(
+            CommandSender sender,
+            String[] args
+    ) {
+        String id =
+                requireModuleId(
+                        sender,
+                        args,
+                        "reload"
+                );
+
+        if (id == null) {
+            return;
+        }
+
+        if (
+                core.moduleLoader()
+                        .reloadModule(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<green>Hard reload completado:</green> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+        } else {
+            sendOperationFailure(
+                    sender,
+                    id,
+                    "recargar"
+            );
+        }
+    }
+
+    private void handleUnload(
+            CommandSender sender,
+            String[] args
+    ) {
+        String id =
+                requireModuleId(
+                        sender,
+                        args,
+                        "unload"
+                );
+
+        if (id == null) {
+            return;
+        }
+
+        if (
+                core.moduleLoader()
+                        .unloadModule(id)
+        ) {
+            MessageService.send(
+                    sender,
+                    "<green>Módulo descargado:</green> <yellow>"
+                            + id
+                            + "</yellow>"
+            );
+
+        } else {
+            sendOperationFailure(
+                    sender,
+                    id,
+                    "descargar"
+            );
+        }
+    }
+
+    private void sendLoadedModuleInfo(
+            CommandSender sender,
+            ModuleContainer container
+    ) {
+        ModuleDescriptor descriptor =
+                container.descriptor();
+
+        var module =
+                container.module();
+
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>"
+                        + descriptor.name()
+                        + "</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>ID:</gray> <aqua>"
+                        + descriptor.id()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Versión:</gray> <aqua>"
+                        + descriptor.version()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Estado:</gray> "
+                        + statusText(
+                        container.status()
+                )
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Dependencias:</gray> <white>"
+                        + formatList(
+                        descriptor.dependencies()
+                )
+                        + "</white>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Soft dependencies:</gray> <white>"
+                        + formatList(
+                        descriptor.softDependencies()
+                )
+                        + "</white>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Tasks:</gray> <aqua>"
+                        + moduleManager.taskManager()
+                        .activeTasks(module)
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Listeners:</gray> <aqua>"
+                        + moduleManager.listenerManager()
+                        .activeListeners(module)
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Commands:</gray> <aqua>"
+                        + moduleManager.commandManager()
+                        .activeCommands(module)
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Services:</gray> <aqua>"
+                        + core.services()
+                        .countOwned(module)
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Resources:</gray> <aqua>"
+                        + module.resources()
+                        .active()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
+    }
+
+    private void sendDiscoveredModuleInfo(
+            CommandSender sender,
+            ModuleDescriptor descriptor
+    ) {
+        MessageService.send(
+                sender,
+                ""
+        );
+
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>"
+                        + descriptor.name()
+                        + "</bold></gradient>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>ID:</gray> <aqua>"
+                        + descriptor.id()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Versión:</gray> <aqua>"
+                        + descriptor.version()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Estado:</gray> <gray>DISCOVERED</gray>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Dependencias:</gray> <white>"
+                        + formatList(
+                        descriptor.dependencies()
+                )
+                        + "</white>"
+        );
+
+        MessageService.send(
+                sender,
+                ""
+        );
+    }
+
+    private void sendVersion(
+            CommandSender sender
+    ) {
+        MessageService.send(
+                sender,
+                "<gradient:#8A2BE2:#00D4FF><bold>AriatusCore</bold></gradient> <aqua>"
+                        + core.getPluginMeta()
+                        .getVersion()
+                        + "</aqua>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Minecraft:</gray> <yellow>"
+                        + core.getServer()
+                        .getMinecraftVersion()
+                        + "</yellow>"
+        );
+
+        MessageService.send(
+                sender,
+                "<gray>Java:</gray> <yellow>"
+                        + System.getProperty(
+                        "java.version"
+                )
+                        + "</yellow>"
+        );
+    }
+
+    private String requireModuleId(
+            CommandSender sender,
+            String[] args,
+            String action
+    ) {
+        if (args.length < 2) {
+            MessageService.send(
+                    sender,
+                    "<yellow>Uso: /ariatus "
+                            + action
+                            + " <id></yellow>"
+            );
+
+            return null;
+        }
+
+        return normalizeId(
+                args[1]
+        );
+    }
+
+    private void sendOperationFailure(
+            CommandSender sender,
+            String id,
+            String operation
+    ) {
+        MessageService.send(
+                sender,
+                "<red>No se pudo "
+                        + operation
+                        + " el módulo</red> <yellow>"
+                        + id
+                        + "</yellow><red>.</red>"
+        );
+
+        String reason =
+                core.moduleLoader()
+                        .failedModules()
+                        .get(id);
+
+        if (reason != null) {
+            MessageService.send(
+                    sender,
+                    "<gray>Motivo:</gray> <red>"
+                            + reason
+                            + "</red>"
+            );
+        }
+    }
+
+    private String normalizeId(
+            String id
+    ) {
+        return id.trim()
+                .toLowerCase(
+                        Locale.ROOT
+                );
+    }
+
+    private String decimal(
+            double value
+    ) {
+        return String.format(
+                Locale.US,
+                "%.3f",
+                value
+        );
+    }
+
+    private String formatList(
+            List<String> values
+    ) {
+        return values.isEmpty()
+                ? "ninguna"
+                : String.join(
+                ", ",
+                values
+        );
+    }
+
+    private String statusSymbol(
+            ModuleStatus status
+    ) {
+        return switch (status) {
+            case ENABLED -> "<green>●</green>";
+            case DISABLED -> "<gray>○</gray>";
+            case ENABLING -> "<yellow>◐</yellow>";
+            case DISABLING -> "<gold>◐</gold>";
+            case ERROR -> "<red>●</red>";
+        };
+    }
+
+    private String statusText(
+            ModuleStatus status
+    ) {
+        return switch (status) {
+            case ENABLED -> "<green>ENABLED</green>";
+            case DISABLED -> "<gray>DISABLED</gray>";
+            case ENABLING -> "<yellow>ENABLING</yellow>";
+            case DISABLING -> "<gold>DISABLING</gold>";
+            case ERROR -> "<red>ERROR</red>";
+        };
+    }
+
+    private String runtimeText() {
+        return switch (
+                core.runtimeState()
+        ) {
+            case RUNNING -> "<green>RUNNING</green>";
+            case STARTING -> "<yellow>STARTING</yellow>";
+            case STOPPING -> "<gold>STOPPING</gold>";
+            case FAILED -> "<red>FAILED</red>";
+            case STOPPED -> "<gray>STOPPED</gray>";
+        };
     }
 }

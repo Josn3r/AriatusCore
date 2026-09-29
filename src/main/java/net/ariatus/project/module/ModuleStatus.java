@@ -5,6 +5,5 @@ public enum ModuleStatus {
     ENABLING,
     ENABLED,
     DISABLING,
-    RELOADING,
     ERROR
 }

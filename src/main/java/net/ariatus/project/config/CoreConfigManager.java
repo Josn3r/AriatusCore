@@ -3,12 +3,15 @@ package net.ariatus.project.config;
 import net.ariatus.project.AriatusCore;
 import org.bukkit.configuration.file.FileConfiguration;
 
-public class AriatusConfigManager {
+import java.util.List;
+import java.util.Objects;
+
+public final class CoreConfigManager {
 
     private final AriatusCore core;
 
-    public AriatusConfigManager(AriatusCore core) {
-        this.core = core;
+    public CoreConfigManager(AriatusCore core) {
+        this.core = Objects.requireNonNull(core, "core");
     }
 
     public void load() {
@@ -34,5 +37,21 @@ public class AriatusConfigManager {
 
     public int getInt(String path, int def) {
         return config().getInt(path, def);
+    }
+
+    public long getLong(String path, long def) {
+        return config().getLong(path, def);
+    }
+
+    public double getDouble(String path, double def) {
+        return config().getDouble(path, def);
+    }
+
+    public List<String> getStringList(String path) {
+        return List.copyOf(config().getStringList(path));
+    }
+
+    public boolean contains(String path) {
+        return config().contains(path);
     }
 }

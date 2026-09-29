@@ -5,8 +5,9 @@ plugins {
     id("xyz.jpenilla.run-paper") version "3.0.2"
 }
 
-group = "net.ariatus.project"
-version = "1.0"
+group = providers.gradleProperty("group").get()
+version = providers.gradleProperty("version").get()
+description = providers.gradleProperty("description").get()
 
 repositories {
     mavenCentral()
@@ -17,8 +18,10 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     compileOnly("com.comphenix.protocol:ProtocolLib:5.4.0-SNAPSHOT")
+
     implementation("net.kyori:adventure-text-minimessage:4.17.0")
     implementation("net.kyori:adventure-text-serializer-legacy:4.17.0")
+
     implementation("com.zaxxer:HikariCP:5.1.0")
     implementation("org.mariadb.jdbc:mariadb-java-client:3.5.1")
 }
@@ -33,7 +36,17 @@ tasks {
     }
 
     processResources {
+        val pluginProperties = mapOf(
+            "version" to providers.gradleProperty("version").get(),
+            "description" to providers.gradleProperty("description").get()
+        )
+
+        inputs.properties(pluginProperties)
         filteringCharset = "UTF-8"
+
+        filesMatching("plugin.yml") {
+            expand(pluginProperties)
+        }
     }
 
     shadowJar {
@@ -41,7 +54,10 @@ tasks {
         archiveClassifier.set("")
         archiveVersion.set("")
 
-        relocate("com.zaxxer.hikari", "net.ariatus.project.libs.hikari")
+        relocate(
+            "com.zaxxer.hikari",
+            "net.ariatus.project.libs.hikari"
+        )
     }
 
     build {
@@ -53,9 +69,10 @@ publishing {
     publications {
         create<MavenPublication>("mavenJava") {
             artifact(tasks.shadowJar.get())
-            groupId = "net.ariatus.project"
+
+            groupId = providers.gradleProperty("group").get()
             artifactId = "AriatusCore"
-            version = "1.0"
+            version = providers.gradleProperty("version").get()
         }
     }
 }

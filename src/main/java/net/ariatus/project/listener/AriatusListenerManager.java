@@ -5,57 +5,72 @@ import net.ariatus.project.module.AriatusModule;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class AriatusListenerManager {
+public final class AriatusListenerManager {
 
     private final AriatusCore core;
-    private final Map<String, List<Listener>> listenersByModule = new HashMap<>();
+
+    private final Map<String, Set<Listener>> listenersByModule =
+            new ConcurrentHashMap<>();
 
     public AriatusListenerManager(AriatusCore core) {
-        this.core = core;
+        this.core = Objects.requireNonNull(core, "core");
     }
 
-    public void register(AriatusModule module, Listener listener) {
-        String moduleId = module.id().toLowerCase();
+    public <T extends Listener> T register(AriatusModule module, T listener) {
+        Objects.requireNonNull(module, "module");
+        Objects.requireNonNull(listener, "listener");
 
-        core.getServer().getPluginManager().registerEvents(listener, core);
+        String moduleId = module.id().toLowerCase(Locale.ROOT);
+
+        core.getServer()
+                .getPluginManager()
+                .registerEvents(listener, core);
 
         listenersByModule
-                .computeIfAbsent(moduleId, id -> new ArrayList<>())
+                .computeIfAbsent(
+                        moduleId,
+                        ignored -> ConcurrentHashMap.newKeySet()
+                )
                 .add(listener);
 
-        core.getLogger().info("[ListenerManager] Listener registrado para módulo: " + moduleId);
+        return listener;
     }
 
     public void unregisterAll(AriatusModule module) {
-        String moduleId = module.id().toLowerCase();
+        Objects.requireNonNull(module, "module");
 
-        List<Listener> listeners = listenersByModule.remove(moduleId);
+        String moduleId = module.id().toLowerCase(Locale.ROOT);
+
+        Set<Listener> listeners = listenersByModule.remove(moduleId);
 
         if (listeners == null) {
             return;
         }
 
-        for (Listener listener : listeners) {
-            HandlerList.unregisterAll(listener);
-        }
-
-        core.getLogger().info("[ListenerManager] Listeners eliminados del módulo: " + moduleId);
+        listeners.forEach(HandlerList::unregisterAll);
     }
 
     public int activeListeners(AriatusModule module) {
         return listenersByModule
-                .getOrDefault(module.id().toLowerCase(), List.of())
+                .getOrDefault(
+                        module.id().toLowerCase(Locale.ROOT),
+                        Set.of()
+                )
                 .size();
     }
 
     public void unregisterAll() {
-        for (List<Listener> listeners : listenersByModule.values()) {
-            for (Listener listener : listeners) {
-                HandlerList.unregisterAll(listener);
-            }
-        }
+        listenersByModule.values()
+                .forEach(listeners ->
+                        listeners.forEach(HandlerList::unregisterAll)
+                );
 
         listenersByModule.clear();
     }

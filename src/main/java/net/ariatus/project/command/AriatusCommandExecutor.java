@@ -12,6 +12,18 @@ public interface AriatusCommandExecutor {
         return List.of();
     }
 
+    default String description() {
+        return "";
+    }
+
+    default String usage() {
+        return "/" + name();
+    }
+
+    default String permission() {
+        return "";
+    }
+
     boolean execute(CommandSender sender, String[] args);
 
     default List<String> tabComplete(CommandSender sender, String[] args) {
