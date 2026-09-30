@@ -5,6 +5,8 @@ import net.ariatus.project.config.CoreConfigManager;
 import net.ariatus.project.database.DatabaseService;
 import net.ariatus.project.database.migration.MigrationManager;
 import net.ariatus.project.event.InternalEventBus;
+import net.ariatus.project.integration.ItemsAdderService;
+import net.ariatus.project.integration.PlaceholderService;
 import net.ariatus.project.listener.AriatusListenerManager;
 import net.ariatus.project.logger.LoggerService;
 import net.ariatus.project.message.MessagesManager;
@@ -17,9 +19,13 @@ import net.ariatus.project.runtime.AriatusRuntime;
 import net.ariatus.project.runtime.AriatusRuntimeState;
 import net.ariatus.project.service.ServiceRegistry;
 import net.ariatus.project.task.AriatusTaskManager;
+import net.ariatus.project.ui.dialog.DialogUtils;
+import net.ariatus.project.ui.item.ItemUtils;
+import net.ariatus.project.ui.menu.MenuUtils;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class AriatusCore extends JavaPlugin {
+public final class AriatusCore
+        extends JavaPlugin {
 
     private AriatusRuntime runtime;
 
@@ -76,62 +82,102 @@ public final class AriatusCore extends JavaPlugin {
     }
 
     public CoreConfigManager configManager() {
-        return runtime().configManager();
+        return runtime()
+                .configManager();
     }
 
     public MessagesManager messages() {
-        return runtime().messages();
+        return runtime()
+                .messages();
     }
 
     public LoggerService loggerService() {
-        return runtime().loggerService();
+        return runtime()
+                .loggerService();
     }
 
     public InternalEventBus eventBus() {
-        return runtime().eventBus();
+        return runtime()
+                .eventBus();
     }
 
     public DatabaseService databaseService() {
-        return runtime().databaseService();
+        return runtime()
+                .databaseService();
     }
 
     public MigrationManager migrationManager() {
-        return runtime().migrationManager();
+        return runtime()
+                .migrationManager();
     }
 
     public ModuleProfiler profiler() {
-        return runtime().profiler();
+        return runtime()
+                .profiler();
     }
 
     public ServiceRegistry services() {
-        return runtime().services();
+        return runtime()
+                .services();
     }
 
     public ModuleManager moduleManager() {
-        return runtime().moduleManager();
+        return runtime()
+                .moduleManager();
     }
 
     public ModuleDataManager moduleDataManager() {
-        return runtime().moduleDataManager();
+        return runtime()
+                .moduleDataManager();
     }
 
     public ModuleConfigManager moduleConfigManager() {
-        return runtime().moduleConfigManager();
+        return runtime()
+                .moduleConfigManager();
     }
 
     public AriatusTaskManager taskManager() {
-        return runtime().taskManager();
+        return runtime()
+                .taskManager();
     }
 
     public AriatusListenerManager listenerManager() {
-        return runtime().listenerManager();
+        return runtime()
+                .listenerManager();
     }
 
     public AriatusCommandManager commandManager() {
-        return runtime().commandManager();
+        return runtime()
+                .commandManager();
+    }
+
+    public ItemsAdderService itemsAdderService() {
+        return runtime()
+                .itemsAdderService();
+    }
+
+    public PlaceholderService placeholderService() {
+        return runtime()
+                .placeholderService();
+    }
+
+    public ItemUtils itemUtils() {
+        return runtime()
+                .itemUtils();
+    }
+
+    public MenuUtils menuUtils() {
+        return runtime()
+                .menuUtils();
+    }
+
+    public DialogUtils dialogUtils() {
+        return runtime()
+                .dialogUtils();
     }
 
     public AriatusModuleLoader moduleLoader() {
-        return runtime().moduleLoader();
+        return runtime()
+                .moduleLoader();
     }
 }

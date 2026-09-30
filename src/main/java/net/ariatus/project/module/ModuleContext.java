@@ -37,15 +37,17 @@ public final class ModuleContext {
             AriatusCore core,
             ModuleContainer container
     ) {
-        this.core = Objects.requireNonNull(
-                core,
-                "core"
-        );
+        this.core =
+                Objects.requireNonNull(
+                        core,
+                        "core"
+                );
 
-        this.container = Objects.requireNonNull(
-                container,
-                "container"
-        );
+        this.container =
+                Objects.requireNonNull(
+                        container,
+                        "container"
+                );
 
         AriatusModule module =
                 container.module();
@@ -181,8 +183,42 @@ public final class ModuleContext {
     }
 
     void closeManagedResources() {
+        AriatusModule module =
+                container.module();
+
+        closeUiResource(
+                "dialogs",
+                () ->
+                        core.dialogUtils()
+                                .release(module)
+        );
+
+        closeUiResource(
+                "menus",
+                () ->
+                        core.menuUtils()
+                                .release(module)
+        );
+
         resourceRegistry.closeAll(
                 logger
         );
+    }
+
+    private void closeUiResource(
+            String resource,
+            Runnable action
+    ) {
+        try {
+            action.run();
+
+        } catch (Throwable throwable) {
+            logger.error(
+                    "Error liberando "
+                            + resource
+                            + " del módulo.",
+                    throwable
+            );
+        }
     }
 }

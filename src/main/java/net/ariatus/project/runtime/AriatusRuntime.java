@@ -12,6 +12,8 @@ import net.ariatus.project.event.InternalEventBus;
 import net.ariatus.project.event.ModuleDisabledEvent;
 import net.ariatus.project.event.ModuleEnabledEvent;
 import net.ariatus.project.event.ModuleReloadedEvent;
+import net.ariatus.project.integration.ItemsAdderService;
+import net.ariatus.project.integration.PlaceholderService;
 import net.ariatus.project.listener.AriatusListenerManager;
 import net.ariatus.project.logger.LoggerService;
 import net.ariatus.project.message.MessagesManager;
@@ -22,6 +24,9 @@ import net.ariatus.project.module.loader.AriatusModuleLoader;
 import net.ariatus.project.profiler.ModuleProfiler;
 import net.ariatus.project.service.ServiceRegistry;
 import net.ariatus.project.task.AriatusTaskManager;
+import net.ariatus.project.ui.dialog.DialogUtils;
+import net.ariatus.project.ui.item.ItemUtils;
+import net.ariatus.project.ui.menu.MenuUtils;
 import org.bukkit.command.PluginCommand;
 
 import java.util.Objects;
@@ -30,7 +35,8 @@ public final class AriatusRuntime {
 
     private final AriatusCore core;
 
-    private volatile AriatusRuntimeState state = AriatusRuntimeState.STOPPED;
+    private volatile AriatusRuntimeState state =
+            AriatusRuntimeState.STOPPED;
 
     private CoreConfigManager configManager;
     private MessagesManager messagesManager;
@@ -52,32 +58,48 @@ public final class AriatusRuntime {
     private AriatusListenerManager listenerManager;
     private AriatusCommandManager commandManager;
 
+    private ItemsAdderService itemsAdderService;
+    private PlaceholderService placeholderService;
+
+    private ItemUtils itemUtils;
+    private MenuUtils menuUtils;
+    private DialogUtils dialogUtils;
+
     private AriatusModuleLoader moduleLoader;
 
-    public AriatusRuntime(AriatusCore core) {
-        this.core = Objects.requireNonNull(
-                core,
-                "core"
-        );
+    public AriatusRuntime(
+            AriatusCore core
+    ) {
+        this.core =
+                Objects.requireNonNull(
+                        core,
+                        "core"
+                );
     }
 
     public synchronized void start() {
         if (
-                state == AriatusRuntimeState.STARTING
-                        || state == AriatusRuntimeState.RUNNING
+                state
+                        == AriatusRuntimeState.STARTING
+                        || state
+                        == AriatusRuntimeState.RUNNING
         ) {
             throw new IllegalStateException(
                     "AriatusRuntime ya está iniciado o iniciándose."
             );
         }
 
-        if (state == AriatusRuntimeState.STOPPING) {
+        if (
+                state
+                        == AriatusRuntimeState.STOPPING
+        ) {
             throw new IllegalStateException(
                     "AriatusRuntime se está apagando."
             );
         }
 
-        state = AriatusRuntimeState.STARTING;
+        state =
+                AriatusRuntimeState.STARTING;
 
         core.getLogger().info(
                 "Iniciando AriatusRuntime..."
@@ -88,6 +110,7 @@ public final class AriatusRuntime {
             initializeLogging();
             initializeDatabase();
             initializeModuleRuntime();
+            initializeSharedUtilities();
 
             registerCoreServices();
             registerMigrations();
@@ -97,14 +120,16 @@ public final class AriatusRuntime {
             runMigrations();
             loadModules();
 
-            state = AriatusRuntimeState.RUNNING;
+            state =
+                    AriatusRuntimeState.RUNNING;
 
             loggerService.info(
                     "AriatusRuntime iniciado correctamente."
             );
 
         } catch (Throwable throwable) {
-            state = AriatusRuntimeState.FAILED;
+            state =
+                    AriatusRuntimeState.FAILED;
 
             logStartupFailure(
                     throwable
@@ -112,9 +137,13 @@ public final class AriatusRuntime {
 
             shutdownComponents();
 
-            state = AriatusRuntimeState.FAILED;
+            state =
+                    AriatusRuntimeState.FAILED;
 
-            if (throwable instanceof RuntimeException runtimeException) {
+            if (
+                    throwable
+                            instanceof RuntimeException runtimeException
+            ) {
                 throw runtimeException;
             }
 
@@ -127,13 +156,16 @@ public final class AriatusRuntime {
 
     public synchronized void stop() {
         if (
-                state == AriatusRuntimeState.STOPPED
-                        || state == AriatusRuntimeState.STOPPING
+                state
+                        == AriatusRuntimeState.STOPPED
+                        || state
+                        == AriatusRuntimeState.STOPPING
         ) {
             return;
         }
 
-        state = AriatusRuntimeState.STOPPING;
+        state =
+                AriatusRuntimeState.STOPPING;
 
         logInfo(
                 "Apagando AriatusRuntime..."
@@ -141,7 +173,8 @@ public final class AriatusRuntime {
 
         shutdownComponents();
 
-        state = AriatusRuntimeState.STOPPED;
+        state =
+                AriatusRuntimeState.STOPPED;
 
         core.getLogger().info(
                 "AriatusRuntime apagado correctamente."
@@ -153,7 +186,8 @@ public final class AriatusRuntime {
     }
 
     public boolean isRunning() {
-        return state == AriatusRuntimeState.RUNNING;
+        return state
+                == AriatusRuntimeState.RUNNING;
     }
 
     public CoreConfigManager configManager() {
@@ -251,6 +285,41 @@ public final class AriatusRuntime {
         return requireAvailable(
                 commandManager,
                 "AriatusCommandManager"
+        );
+    }
+
+    public ItemsAdderService itemsAdderService() {
+        return requireAvailable(
+                itemsAdderService,
+                "ItemsAdderService"
+        );
+    }
+
+    public PlaceholderService placeholderService() {
+        return requireAvailable(
+                placeholderService,
+                "PlaceholderService"
+        );
+    }
+
+    public ItemUtils itemUtils() {
+        return requireAvailable(
+                itemUtils,
+                "ItemUtils"
+        );
+    }
+
+    public MenuUtils menuUtils() {
+        return requireAvailable(
+                menuUtils,
+                "MenuUtils"
+        );
+    }
+
+    public DialogUtils dialogUtils() {
+        return requireAvailable(
+                dialogUtils,
+                "DialogUtils"
         );
     }
 
@@ -352,6 +421,47 @@ public final class AriatusRuntime {
                 );
     }
 
+    private void initializeSharedUtilities() {
+        itemsAdderService =
+                new ItemsAdderService(
+                        core
+                );
+
+        placeholderService =
+                new PlaceholderService(
+                        core
+                );
+
+        itemUtils =
+                new ItemUtils(
+                        itemsAdderService
+                );
+
+        menuUtils =
+                new MenuUtils(
+                        core
+                );
+
+        dialogUtils =
+                new DialogUtils(
+                        core
+                );
+
+        core.getServer()
+                .getPluginManager()
+                .registerEvents(
+                        menuUtils,
+                        core
+                );
+
+        menuUtils.start();
+        dialogUtils.start();
+
+        loggerService.debug(
+                "Utilidades compartidas de UI e integraciones inicializadas."
+        );
+    }
+
     private void registerCoreServices() {
         serviceRegistry.registerCore(
                 AriatusRuntime.class,
@@ -427,6 +537,31 @@ public final class AriatusRuntime {
                 AriatusModuleLoader.class,
                 moduleLoader
         );
+
+        serviceRegistry.registerCore(
+                ItemsAdderService.class,
+                itemsAdderService
+        );
+
+        serviceRegistry.registerCore(
+                PlaceholderService.class,
+                placeholderService
+        );
+
+        serviceRegistry.registerCore(
+                ItemUtils.class,
+                itemUtils
+        );
+
+        serviceRegistry.registerCore(
+                MenuUtils.class,
+                menuUtils
+        );
+
+        serviceRegistry.registerCore(
+                DialogUtils.class,
+                dialogUtils
+        );
     }
 
     private void registerMigrations() {
@@ -438,26 +573,32 @@ public final class AriatusRuntime {
     private void registerInternalEvents() {
         eventBus.subscribe(
                 ModuleEnabledEvent.class,
-                event -> loggerService.debug(
-                        "Módulo activado -> "
-                                + event.module().id()
-                )
+                event ->
+                        loggerService.debug(
+                                "Módulo activado -> "
+                                        + event.module()
+                                        .id()
+                        )
         );
 
         eventBus.subscribe(
                 ModuleDisabledEvent.class,
-                event -> loggerService.debug(
-                        "Módulo desactivado -> "
-                                + event.module().id()
-                )
+                event ->
+                        loggerService.debug(
+                                "Módulo desactivado -> "
+                                        + event.module()
+                                        .id()
+                        )
         );
 
         eventBus.subscribe(
                 ModuleReloadedEvent.class,
-                event -> loggerService.debug(
-                        "Módulo recargado -> "
-                                + event.module().id()
-                )
+                event ->
+                        loggerService.debug(
+                                "Módulo recargado -> "
+                                        + event.module()
+                                        .id()
+                        )
         );
     }
 
@@ -551,6 +692,42 @@ public final class AriatusRuntime {
         );
 
         shutdownStep(
+                "DialogUtils",
+                () -> {
+                    if (dialogUtils != null) {
+                        dialogUtils.shutdown();
+                    }
+                }
+        );
+
+        shutdownStep(
+                "MenuUtils",
+                () -> {
+                    if (menuUtils != null) {
+                        menuUtils.shutdown();
+                    }
+                }
+        );
+
+        shutdownStep(
+                "ItemsAdder",
+                () -> {
+                    if (itemsAdderService != null) {
+                        itemsAdderService.invalidate();
+                    }
+                }
+        );
+
+        shutdownStep(
+                "PlaceholderAPI",
+                () -> {
+                    if (placeholderService != null) {
+                        placeholderService.invalidate();
+                    }
+                }
+        );
+
+        shutdownStep(
                 "comandos dinámicos",
                 () -> {
                     if (commandManager != null) {
@@ -617,27 +794,65 @@ public final class AriatusRuntime {
     }
 
     private void clearReferences() {
-        moduleLoader = null;
+        moduleLoader =
+                null;
 
-        commandManager = null;
-        listenerManager = null;
-        taskManager = null;
+        dialogUtils =
+                null;
 
-        moduleConfigManager = null;
-        moduleDataManager = null;
-        moduleManager = null;
+        menuUtils =
+                null;
 
-        serviceRegistry = null;
-        profiler = null;
+        itemUtils =
+                null;
 
-        migrationManager = null;
-        databaseService = null;
+        placeholderService =
+                null;
 
-        eventBus = null;
-        loggerService = null;
+        itemsAdderService =
+                null;
 
-        messagesManager = null;
-        configManager = null;
+        commandManager =
+                null;
+
+        listenerManager =
+                null;
+
+        taskManager =
+                null;
+
+        moduleConfigManager =
+                null;
+
+        moduleDataManager =
+                null;
+
+        moduleManager =
+                null;
+
+        serviceRegistry =
+                null;
+
+        profiler =
+                null;
+
+        migrationManager =
+                null;
+
+        databaseService =
+                null;
+
+        eventBus =
+                null;
+
+        loggerService =
+                null;
+
+        messagesManager =
+                null;
+
+        configManager =
+                null;
     }
 
     private void shutdownStep(

@@ -1,6 +1,7 @@
 package net.ariatus.project.module;
 
 import net.ariatus.project.AriatusCore;
+import net.ariatus.project.integration.PlaceholderService;
 import net.ariatus.project.module.runtime.ModuleCommands;
 import net.ariatus.project.module.runtime.ModuleConfigs;
 import net.ariatus.project.module.runtime.ModuleDatabase;
@@ -10,6 +11,9 @@ import net.ariatus.project.module.runtime.ModuleLogger;
 import net.ariatus.project.module.runtime.ModuleResources;
 import net.ariatus.project.module.runtime.ModuleServices;
 import net.ariatus.project.module.runtime.ModuleTasks;
+import net.ariatus.project.ui.dialog.DialogUtils;
+import net.ariatus.project.ui.item.ItemUtils;
+import net.ariatus.project.ui.menu.MenuUtils;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.io.File;
@@ -124,6 +128,28 @@ public abstract class AriatusModule {
 
     public final ModuleDatabase database() {
         return context().database();
+    }
+
+    public final MenuUtils.Scope menus() {
+        return core()
+                .menuUtils()
+                .scope(this);
+    }
+
+    public final DialogUtils.Scope dialogs() {
+        return core()
+                .dialogUtils()
+                .scope(this);
+    }
+
+    public final ItemUtils items() {
+        return core()
+                .itemUtils();
+    }
+
+    public final PlaceholderService placeholders() {
+        return core()
+                .placeholderService();
     }
 
     public final FileConfiguration config() {
